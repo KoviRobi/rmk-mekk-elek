@@ -4,7 +4,6 @@
 use defmt_rtt as _;
 use panic_probe as _;
 
-mod keymap;
 mod matrix;
 
 #[rtic::app(device = rp_pico::hal::pac, peripherals = true, dispatchers = [XIP_IRQ])]
@@ -12,8 +11,9 @@ mod app {
 
     use rp_pico as bsp;
 
-    use super::keymap::associate;
-    use super::keymap::KEYMAP;
+    use rmk_mekk_elek::keymap::associate;
+    use rmk_mekk_elek::keymap::KEYMAP;
+
     use super::matrix::decode;
 
     use bsp::{

@@ -1,8 +1,8 @@
 [package]
-name = "rmk-mekk-elek"
+name = "rmk-mekk-elek-rp2040"
 version = "0.1.0"
 edition = "2021"
-description = "Keyboard driver by R. M. K."
+description = "Keyboard driver by R. M. K., for RP2040"
 license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -10,6 +10,8 @@ license = "MIT"
 [workspace]
 
 [dependencies]
+rmk-mekk-elek = { path = ".." }
+
 usbd-human-interface-device = "0.3.1"
 usb-device= "0.2"
 packed_struct = { version = "0.10", default-features = false }
