@@ -300,6 +300,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "paste"
+version = "1.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d01a5bd0424d00070b0098dd17ebca6f961a959dead1dbcbbbc1d1cd8d3deeba"
+
+[[package]]
 name = "proc-macro-error"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -353,6 +359,7 @@ version = "0.1.0"
 dependencies = [
  "heapless",
  "no-std-compat",
+ "paste",
  "usbd-human-interface-device",
 ]
 
