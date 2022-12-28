@@ -4,10 +4,17 @@
 use defmt_rtt as _;
 use panic_probe as _;
 
+mod keymap;
+mod matrix;
+
 #[rtic::app(device = rp_pico::hal::pac, peripherals = true, dispatchers = [XIP_IRQ])]
 mod app {
 
     use rp_pico as bsp;
+
+    use super::keymap::associate;
+    use super::keymap::KEYMAP;
+    use super::matrix::decode;
 
     use bsp::{
         hal::{self, clocks::init_clocks_and_plls, watchdog::Watchdog, Sio},
@@ -16,11 +23,11 @@ mod app {
     use embedded_hal::digital::v2::*;
     use frunk::HList;
     use fugit::ExtU64;
+    use heapless::Vec;
     use rp2040_monotonic::Rp2040Monotonic;
     use usb_device::class_prelude::*;
     use usb_device::prelude::*;
     use usbd_human_interface_device::device::keyboard::NKROBootKeyboardInterface;
-    use usbd_human_interface_device::page::Keyboard;
     use usbd_human_interface_device::prelude::*;
 
     #[monotonic(binds = TIMER_IRQ_0, default = true)]
@@ -36,10 +43,14 @@ mod app {
         usb_device: UsbDevice<'static, hal::usb::UsbBus>,
     }
 
+    const ROWS: usize = 6;
+    const COLS: usize = 6;
+
     #[local]
     struct Local {
         led: hal::gpio::Pin<hal::gpio::pin::bank0::Gpio25, hal::gpio::PushPullOutput>,
-        key: hal::gpio::Pin<hal::gpio::pin::bank0::Gpio0, hal::gpio::PullUpInput>,
+        rows: Vec<hal::gpio::DynPin, ROWS>,
+        cols: Vec<hal::gpio::DynPin, COLS>,
     }
 
     #[init(local = [usb_alloc: Option<UsbBusAllocator<hal::usb::UsbBus>> = None])]
@@ -74,7 +85,25 @@ mod app {
         let mut led = pins.led.into_push_pull_output();
         led.set_low().unwrap();
 
-        let key = pins.gpio0.into_pull_up_input();
+        let mut rows = Vec::<_, ROWS>::new();
+        rows.extend([
+            pins.gpio16.into_push_pull_output().into(),
+            pins.gpio17.into_push_pull_output().into(),
+            pins.gpio18.into_push_pull_output().into(),
+            pins.gpio19.into_push_pull_output().into(),
+            pins.gpio20.into_push_pull_output().into(),
+            pins.gpio21.into_push_pull_output().into(),
+        ]);
+
+        let mut cols = Vec::<_, COLS>::new();
+        cols.extend([
+            pins.gpio10.into_push_pull_output().into(),
+            pins.gpio11.into_push_pull_output().into(),
+            pins.gpio12.into_push_pull_output().into(),
+            pins.gpio13.into_push_pull_output().into(),
+            pins.gpio14.into_push_pull_output().into(),
+            pins.gpio15.into_push_pull_output().into(),
+        ]);
 
         let mono = Rp2040Monotonic::new(cx.device.TIMER);
 
@@ -91,10 +120,8 @@ mod app {
             )));
 
         let keyboard = UsbHidClassBuilder::new()
-        .add_interface(
-            usbd_human_interface_device::device::keyboard::NKROBootKeyboardInterface::default_config(),
-        )
-        .build(usb_alloc);
+            .add_interface(NKROBootKeyboardInterface::default_config())
+            .build(usb_alloc);
 
         // https://pid.codes
         let usb_device = UsbDeviceBuilder::new(usb_alloc, UsbVidPid(0x1209, 0x0001))
@@ -117,7 +144,7 @@ mod app {
                 keyboard,
                 usb_device,
             },
-            Local { led, key },
+            Local { led, rows, cols },
             init::Monotonics(mono),
         )
     }
@@ -140,17 +167,25 @@ mod app {
 
     #[task(
         shared = [keyboard],
-        local = [key]
+        local = [rows, cols]
     )]
     fn write_keyboard(mut cx: write_keyboard::Context, scheduled: Instant) {
         cx.shared.keyboard.lock(|k| {
-            match k
-                .interface()
-                .write_report([if cx.local.key.is_low().unwrap() {
-                    &Keyboard::A
-                } else {
-                    &Keyboard::NoEventIndicated
-                }]) {
+            let mut rows: Vec<&mut dyn InputPin<Error = hal::gpio::Error>, ROWS> = cx
+                .local
+                .rows
+                .into_iter()
+                .map(|pin| pin as &mut dyn InputPin<Error = hal::gpio::Error>)
+                .collect();
+            let mut cols: Vec<&mut dyn OutputPin<Error = hal::gpio::Error>, ROWS> = cx
+                .local
+                .cols
+                .into_iter()
+                .map(|pin| pin as &mut dyn OutputPin<Error = hal::gpio::Error>)
+                .collect();
+            let pressed = decode(&mut rows, &mut cols, true).unwrap();
+            let keys = associate::<ROWS, COLS, { ROWS * COLS }>(pressed, KEYMAP);
+            match k.interface().write_report(keys.iter()) {
                 Err(UsbHidError::WouldBlock) => {}
                 Err(UsbHidError::Duplicate) => {}
                 Ok(_) => {}
