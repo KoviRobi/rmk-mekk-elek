@@ -11,7 +11,8 @@ mod app {
 
     use rp_pico as bsp;
 
-    use rmk_mekk_elek::keymap::associate;
+    use rmk_mekk_elek::keymap::Keymap;
+    use rmk_mekk_elek::keymap::State;
     use rmk_mekk_elek::keymap::KEYMAP;
 
     use super::matrix::decode;
@@ -33,6 +34,7 @@ mod app {
     #[monotonic(binds = TIMER_IRQ_0, default = true)]
     type AppMonotonic = Rp2040Monotonic;
     type Instant = <Rp2040Monotonic as rtic::Monotonic>::Instant;
+    type Duration = <Rp2040Monotonic as rtic::Monotonic>::Duration;
 
     #[shared]
     struct Shared {
@@ -51,6 +53,7 @@ mod app {
         led: hal::gpio::Pin<hal::gpio::pin::bank0::Gpio25, hal::gpio::PushPullOutput>,
         rows: Vec<hal::gpio::DynPin, ROWS>,
         cols: Vec<hal::gpio::DynPin, COLS>,
+        keymap: Keymap<Instant, Duration, 6, 6, 1, 1>,
     }
 
     #[init(local = [usb_alloc: Option<UsbBusAllocator<hal::usb::UsbBus>> = None])]
@@ -83,6 +86,8 @@ mod app {
             &mut resets,
         );
         let mut led = pins.led.into_push_pull_output();
+        let usb_conn = pins.vbus_detect.into_floating_input();
+        defmt::info!("USB input: {}", usb_conn.is_high());
         led.set_low().unwrap();
 
         let mut rows = Vec::<_, ROWS>::new();
@@ -97,12 +102,12 @@ mod app {
 
         let mut cols = Vec::<_, COLS>::new();
         cols.extend([
-            pins.gpio10.into_push_pull_output().into(),
-            pins.gpio11.into_push_pull_output().into(),
-            pins.gpio12.into_push_pull_output().into(),
-            pins.gpio13.into_push_pull_output().into(),
-            pins.gpio14.into_push_pull_output().into(),
-            pins.gpio15.into_push_pull_output().into(),
+            pins.gpio10.into_pull_down_input().into(),
+            pins.gpio11.into_pull_down_input().into(),
+            pins.gpio12.into_pull_down_input().into(),
+            pins.gpio13.into_pull_down_input().into(),
+            pins.gpio14.into_pull_down_input().into(),
+            pins.gpio15.into_pull_down_input().into(),
         ]);
 
         let mono = Rp2040Monotonic::new(cx.device.TIMER);
@@ -139,12 +144,24 @@ mod app {
         tick::spawn(now).unwrap();
         write_keyboard::spawn(now).unwrap();
 
+        let keymap = Keymap {
+            tap_duration: 200.millis(),
+            state: [[State::default(); ROWS]; COLS],
+            layers: Vec::new(),
+            map: [KEYMAP; 1],
+        };
+
         (
             Shared {
                 keyboard,
                 usb_device,
             },
-            Local { led, rows, cols },
+            Local {
+                led,
+                rows,
+                cols,
+                keymap,
+            },
             init::Monotonics(mono),
         )
     }
@@ -167,24 +184,24 @@ mod app {
 
     #[task(
         shared = [keyboard],
-        local = [rows, cols]
+        local = [rows, cols, keymap]
     )]
     fn write_keyboard(mut cx: write_keyboard::Context, scheduled: Instant) {
         cx.shared.keyboard.lock(|k| {
-            let mut rows: Vec<&mut dyn InputPin<Error = hal::gpio::Error>, ROWS> = cx
+            let mut rows: Vec<_, ROWS> = cx
                 .local
                 .rows
                 .into_iter()
-                .map(|pin| pin as &mut dyn InputPin<Error = hal::gpio::Error>)
+                .map(|pin| pin as &mut dyn OutputPin<Error = _>)
                 .collect();
-            let mut cols: Vec<&mut dyn OutputPin<Error = hal::gpio::Error>, ROWS> = cx
+            let mut cols: Vec<_, COLS> = cx
                 .local
                 .cols
                 .into_iter()
-                .map(|pin| pin as &mut dyn OutputPin<Error = hal::gpio::Error>)
+                .map(|pin| pin as &mut dyn InputPin<Error = _>)
                 .collect();
-            let pressed = decode(&mut rows, &mut cols, true).unwrap();
-            let keys = associate::<ROWS, COLS, { ROWS * COLS }>(pressed, KEYMAP);
+            let pressed = decode(&mut cols, &mut rows, true).unwrap();
+            let keys = cx.local.keymap.get_keys::<36>(pressed, scheduled);
             match k.interface().write_report(keys.iter()) {
                 Err(UsbHidError::WouldBlock) => {}
                 Err(UsbHidError::Duplicate) => {}

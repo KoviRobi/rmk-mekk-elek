@@ -568,7 +568,7 @@ name = "rmk-mekk-elek"
 version = "0.1.0"
 dependencies = [
  "heapless",
- "no-std-compat",
+ "paste",
  "usbd-human-interface-device",
 ]
 

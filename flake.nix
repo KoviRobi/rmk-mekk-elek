@@ -20,6 +20,7 @@
             # cargo
             rust-analyzer
             flip-link
+            probe-run
             gcc-arm-embedded
           ];
           RUST_SRC_PATH = rustPlatform.rustLibSrc;
