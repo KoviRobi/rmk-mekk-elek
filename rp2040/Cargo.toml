@@ -16,7 +16,7 @@ usbd-human-interface-device = "0.3.1"
 usb-device= "0.2"
 packed_struct = { version = "0.10", default-features = false }
 frunk = { version = "0.4", default-features = false }
-fugit = "0.3"
+fugit = { version = "0.3", features = ["defmt"] }
 cortex-m-rtic = "1.1"
 cortex-m = "0.7"
 cortex-m-rt = "0.7"

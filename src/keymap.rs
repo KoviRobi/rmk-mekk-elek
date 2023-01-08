@@ -2,9 +2,12 @@
 
 use core::ops::{Add, Sub};
 use heapless::Vec;
-use usbd_human_interface_device::page::Keyboard;
 
-use paste::paste;
+// Export as pub so that it can be used from macro
+#[doc(hidden)]
+pub use paste::paste;
+#[doc(hidden)]
+pub use usbd_human_interface_device::page::Keyboard;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ModTapMode {
@@ -212,89 +215,104 @@ impl<
     }
 }
 
+#[macro_export]
 macro_rules! make_keymap {
     // To allow `make_keymap![...]` be the same as `make_keymap!([...])`
-    ( $( $t:tt ),* $(,)? ) => {[ $( make_action!($t) ),* ]};
+    ( $( $t:tt ),* $(,)? ) => {[ $( $crate::keymap::make_action!($t) ),* ]};
 }
+
 #[rustfmt::skip]
+#[macro_export]
 macro_rules! make_button {
     // Shorthands
-    (Esc) => { Button::Keyboard(Keyboard::Escape) };
-    (Eql) => { Button::Keyboard(Keyboard::Equal) };
-    (Bsl) => { Button::Keyboard(Keyboard::Backslash) };
-    (Bsp) => { Button::Keyboard(Keyboard::DeleteBackspace) };
-    (Ent) => { Button::Keyboard(Keyboard::ReturnEnter) };
-    (Spc) => { Button::Keyboard(Keyboard::Space) };
-    (Min) => { Button::Keyboard(Keyboard::Minus) };
-    (LBr) => { Button::Keyboard(Keyboard::LeftBrace) };
-    (RBr) => { Button::Keyboard(Keyboard::RightBrace) };
-    (NUB) => { Button::Keyboard(Keyboard::NonUSBackslash) };
-    (NUH) => { Button::Keyboard(Keyboard::NonUSHash) };
+    (Esc) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Escape) };
+    (Eql) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Equal) };
+    (Bsl) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Backslash) };
+    (Bsp) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::DeleteBackspace) };
+    (Ent) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::ReturnEnter) };
+    (Spc) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Space) };
+    (Min) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Minus) };
+    (LBr) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::LeftBrace) };
+    (RBr) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::RightBrace) };
+    (NUB) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::NonUSBackslash) };
+    (NUH) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::NonUSHash) };
 
-    (Scol) => { Button::Keyboard(Keyboard::Semicolon) };
-    (Slash) => { Button::Keyboard(Keyboard::ForwardSlash) };
-    (Caps) => { Button::Keyboard(Keyboard::CapsLock) };
+    (Scol) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Semicolon) };
+    (Slash) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::ForwardSlash) };
+    (Caps) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::CapsLock) };
 
-    (LSf) => { Button::Keyboard(Keyboard::LeftShift) };
-    (LCl) => { Button::Keyboard(Keyboard::LeftControl) };
-    (LAl) => { Button::Keyboard(Keyboard::LeftAlt) };
-    (LWn) => { Button::Keyboard(Keyboard::LeftGUI) };
-    (RSf) => { Button::Keyboard(Keyboard::RightShift) };
-    (RCl) => { Button::Keyboard(Keyboard::RightControl) };
-    (RAl) => { Button::Keyboard(Keyboard::RightAlt) };
-    (RWn) => { Button::Keyboard(Keyboard::RightGUI) };
+    (LSf) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::LeftShift) };
+    (LCl) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::LeftControl) };
+    (LAl) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::LeftAlt) };
+    (LWn) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::LeftGUI) };
+    (RSf) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::RightShift) };
+    (RCl) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::RightControl) };
+    (RAl) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::RightAlt) };
+    (RWn) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::RightGUI) };
 
     // Do nothing
-    (NOP) => { Button::Keyboard(Keyboard::NoEventIndicated) };
+    (NOP) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::NoEventIndicated) };
 
-    (Left) => { Button::Keyboard(Keyboard::LeftArrow) };
-    (Down) => { Button::Keyboard(Keyboard::DownArrow) };
-    (Up) => { Button::Keyboard(Keyboard::UpArrow) };
-    (Right) => { Button::Keyboard(Keyboard::RightArrow) };
+    (Left) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::LeftArrow) };
+    (Down) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::DownArrow) };
+    (Up) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::UpArrow) };
+    (Right) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::RightArrow) };
 
-    (Ins) => { Button::Keyboard(Keyboard::Insert) };
-    (Del) => { Button::Keyboard(Keyboard::Delete) };
-    (PgUp) => { Button::Keyboard(Keyboard::PageUp) };
-    (PgDn) => { Button::Keyboard(Keyboard::PageDown) };
+    (Ins) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Insert) };
+    (Del) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Delete) };
+    (PgUp) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::PageUp) };
+    (PgDn) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::PageDown) };
 
-    (KP0) => { Button::Keyboard(Keyboard::Keypad0) };
-    (KP1) => { Button::Keyboard(Keyboard::Keypad1) };
-    (KP2) => { Button::Keyboard(Keyboard::Keypad2) };
-    (KP3) => { Button::Keyboard(Keyboard::Keypad3) };
-    (KP4) => { Button::Keyboard(Keyboard::Keypad4) };
-    (KP5) => { Button::Keyboard(Keyboard::Keypad5) };
-    (KP6) => { Button::Keyboard(Keyboard::Keypad6) };
-    (KP7) => { Button::Keyboard(Keyboard::Keypad7) };
-    (KP8) => { Button::Keyboard(Keyboard::Keypad8) };
-    (KP9) => { Button::Keyboard(Keyboard::Keypad9) };
-    (KPDot) => { Button::Keyboard(Keyboard::KeypadDot) };
-    (KPEnt) => { Button::Keyboard(Keyboard::KeypadEnter) };
-    (KPEql) => { Button::Keyboard(Keyboard::KeypadEqual) };
+    (KP0) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Keypad0) };
+    (KP1) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Keypad1) };
+    (KP2) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Keypad2) };
+    (KP3) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Keypad3) };
+    (KP4) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Keypad4) };
+    (KP5) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Keypad5) };
+    (KP6) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Keypad6) };
+    (KP7) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Keypad7) };
+    (KP8) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Keypad8) };
+    (KP9) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::Keypad9) };
+    (KPDot) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::KeypadDot) };
+    (KPEnt) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::KeypadEnter) };
+    (KPEql) => { $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::KeypadEqual) };
 
     // Have numbers translate to number keys
-    ($n:literal) => { Button::Keyboard(paste! { Keyboard::[<Keyboard $n>] }) };
+    ($n:literal) => {
+        $crate::keymap::Button::Keyboard(
+            $crate::keymap::paste! { $crate::keymap::Keyboard::[<Keyboard $n>] },
+        )
+    };
 
     // Fallback
-    ($i:ident) => { Button::Keyboard(Keyboard::$i) };
+    ($i:ident) => {
+        $crate::keymap::Button::Keyboard($crate::keymap::Keyboard::$i)
+    };
 
-    ((L $layer:literal)) => { Button::Layer($layer) };
+    ((L $layer:literal)) => { $crate::keymap::Button::Layer($layer) };
 }
+#[macro_export]
 macro_rules! make_action {
     ((MT $hold:tt $tap:tt)) => {
         Action::ModTap{
-            hold: make_button!($hold),
-            tap: make_button!($tap),
-            mode: ModTapMode::Default
+            hold: $crate::keymap::make_button!($hold),
+            tap: $crate::keymap::make_button!($tap),
+            mode: $crate::keymap::ModTapMode::Default
         }
     };
-    ([ $( $t:tt ),* $(,)? ]) => {[ $( make_action!($t) ),* ]};
-    ($tt:tt) => { Action::Button(make_button!($tt)) };
+    ([ $( $t:tt ),* $(,)? ]) => {[ $( $crate::keymap::make_action!($t) ),* ]};
+    ($tt:tt) => { Action::Button( $crate::keymap::make_button!($tt) ) };
 }
+
+// Export the macros
+pub use make_action;
+pub use make_button;
+pub use make_keymap;
 
 const INPUTS: usize = 6;
 const OUTPUTS: usize = 6;
 
-// For alignment with `vi[:EasyAlign <C-r>4<CR>*,
+// For alignment with `vi]:EasyAlign <C-r>4<CR>*,
 #[rustfmt::skip]
 pub const KEYMAP: [[Action; INPUTS]; OUTPUTS] = make_keymap![
     [Eql,    0,             1,             2,             3,             4],

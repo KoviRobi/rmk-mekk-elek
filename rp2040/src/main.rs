@@ -11,9 +11,35 @@ mod app {
 
     use rp_pico as bsp;
 
+    use rmk_mekk_elek::keymap::make_keymap;
+    use rmk_mekk_elek::keymap::Action;
     use rmk_mekk_elek::keymap::Keymap;
     use rmk_mekk_elek::keymap::State;
-    use rmk_mekk_elek::keymap::KEYMAP;
+
+    const ROWS: usize = 6;
+    const COLS: usize = 6;
+    const LAYERS: usize = 2;
+
+    // For alignment with `vi]:EasyAlign <C-r>4<CR>*,
+    #[rustfmt::skip]
+    pub const KEYMAP: [[[Action; COLS]; ROWS]; LAYERS] = make_keymap![
+      [
+        [Eql,    0,             1,             2,             3,             4],
+        [Bsl,    Q,             W,             E,             R,             T],
+        [Esc,    (MT LSf A),    (MT LSf S),    (MT LCl D),    (MT LCl F),    G],
+        [LSf,    (MT LWn Z),    (MT LWn X),    (MT LAl C),    (MT LAl V),    B],
+        [LWn,    Left,          Down,          Up,            Right,         (MT (L 1) Space)],
+        [NOP,    NOP,           NOP,           NOP,           NOP,           NOP],
+      ],
+      [
+        [F1,     F2,     F3,     F4,     F5,     F6],
+        [NOP,    NOP,    NOP,    NOP,    NOP,    NOP],
+        [NOP,    NOP,    NOP,    NOP,    NOP,    NOP],
+        [NOP,    NOP,    NOP,    NOP,    NOP,    NOP],
+        [NOP,    NOP,    NOP,    NOP,    NOP,    NOP],
+        [NOP,    NOP,    NOP,    NOP,    NOP,    NOP],
+      ],
+    ];
 
     use super::matrix::decode;
 
@@ -45,15 +71,12 @@ mod app {
         usb_device: UsbDevice<'static, hal::usb::UsbBus>,
     }
 
-    const ROWS: usize = 6;
-    const COLS: usize = 6;
-
     #[local]
     struct Local {
         led: hal::gpio::Pin<hal::gpio::pin::bank0::Gpio25, hal::gpio::PushPullOutput>,
         rows: Vec<hal::gpio::DynPin, ROWS>,
         cols: Vec<hal::gpio::DynPin, COLS>,
-        keymap: Keymap<Instant, Duration, 6, 6, 1, 1>,
+        keymap: Keymap<Instant, Duration, 6, 6, 2, 2>,
     }
 
     #[init(local = [usb_alloc: Option<UsbBusAllocator<hal::usb::UsbBus>> = None])]
@@ -148,7 +171,7 @@ mod app {
             tap_duration: 200.millis(),
             state: [[State::default(); ROWS]; COLS],
             layers: Vec::new(),
-            map: [KEYMAP; 1],
+            map: KEYMAP,
         };
 
         (
