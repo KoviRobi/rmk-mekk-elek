@@ -4,8 +4,6 @@
 use defmt_rtt as _;
 use panic_probe as _;
 
-mod matrix;
-
 #[rtic::app(device = rp_pico::hal::pac, peripherals = true, dispatchers = [XIP_IRQ])]
 mod app {
 
@@ -15,6 +13,7 @@ mod app {
     use rmk_mekk_elek::keymap::Action;
     use rmk_mekk_elek::keymap::Keymap;
     use rmk_mekk_elek::keymap::State;
+    use rmk_mekk_elek::matrix::decode;
 
     const ROWS: usize = 6;
     const COLS: usize = 6;
@@ -40,8 +39,6 @@ mod app {
         [NOP,    NOP,    NOP,    NOP,    NOP,    NOP],
       ],
     ];
-
-    use super::matrix::decode;
 
     use bsp::{
         hal::{self, clocks::init_clocks_and_plls, watchdog::Watchdog, Sio},
