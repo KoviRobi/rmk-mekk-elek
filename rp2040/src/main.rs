@@ -208,19 +208,7 @@ mod app {
     )]
     fn write_keyboard(mut cx: write_keyboard::Context, scheduled: Instant) {
         cx.shared.keyboard.lock(|k| {
-            let mut rows: Vec<_, ROWS> = cx
-                .local
-                .rows
-                .into_iter()
-                .map(|pin| pin as &mut dyn OutputPin<Error = _>)
-                .collect();
-            let mut cols: Vec<_, COLS> = cx
-                .local
-                .cols
-                .into_iter()
-                .map(|pin| pin as &mut dyn InputPin<Error = _>)
-                .collect();
-            let pressed = decode(&mut cols, &mut rows, true).unwrap();
+            let pressed = decode(cx.local.cols, cx.local.rows, true).unwrap();
             let keys = cx.local.keymap.get_keys::<36>(pressed, scheduled);
             match k.interface().write_report(keys.iter()) {
                 Err(UsbHidError::WouldBlock) => {}

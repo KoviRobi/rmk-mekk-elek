@@ -3,9 +3,15 @@
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use heapless::Vec;
 
-pub fn decode<E, const INPUTS: usize, const OUTPUTS: usize>(
-    inputs: &mut Vec<&mut dyn InputPin<Error = E>, INPUTS>,
-    outputs: &mut Vec<&mut dyn OutputPin<Error = E>, OUTPUTS>,
+pub fn decode<
+    E,
+    InputPinT: InputPin<Error = E>,
+    OutputPinT: OutputPin<Error = E>,
+    const INPUTS: usize,
+    const OUTPUTS: usize,
+>(
+    inputs: &mut Vec<InputPinT, INPUTS>,
+    outputs: &mut Vec<OutputPinT, OUTPUTS>,
     output_active: bool,
 ) -> Result<Vec<Vec<bool, INPUTS>, OUTPUTS>, E> {
     for output in outputs.iter_mut() {
