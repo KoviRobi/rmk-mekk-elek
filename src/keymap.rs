@@ -32,10 +32,12 @@ impl Default for Action {
     }
 }
 
+type Layer = u8;
+
 #[derive(Debug, Clone, Copy)]
 pub enum Button {
     Keyboard(Keyboard),
-    Layer(u8),
+    Layer(Layer),
 }
 
 impl Default for Button {
@@ -86,7 +88,7 @@ impl<
     fn process_action<const MAX_ACTIVE_LAYERS: usize, const OUTPUT: usize>(
         &mut self,
         output: &mut Vec<Keyboard, OUTPUT>,
-        layers: &mut Vec<u8, MAX_ACTIVE_LAYERS>,
+        layers: &mut Vec<Layer, MAX_ACTIVE_LAYERS>,
         pressed: bool,
         map: &Action,
         now: Instant,
@@ -116,7 +118,7 @@ impl<
     fn process_button<const MAX_ACTIVE_LAYERS: usize, const OUTPUT: usize>(
         &mut self,
         output: &mut Vec<Keyboard, OUTPUT>,
-        layers: &mut Vec<u8, MAX_ACTIVE_LAYERS>,
+        layers: &mut Vec<Layer, MAX_ACTIVE_LAYERS>,
         pressed: bool,
         button: &Button,
         now: Instant,
@@ -136,7 +138,7 @@ impl<
                 if let None = self.active {
                     layers.push(*new_layer).unwrap();
                     self.active
-                        .get_or_insert(Button::Layer((layers.len() - 1) as u8));
+                        .get_or_insert(Button::Layer((layers.len() - 1) as Layer));
                     self.last_pressed.get_or_insert(now);
                 }
             }
@@ -174,7 +176,7 @@ pub struct Keymap<
     const MAX_ACTIVE_LAYERS: usize,
 > {
     pub tap_duration: Duration,
-    pub layers: Vec<u8, MAX_ACTIVE_LAYERS>,
+    pub layers: Vec<Layer, MAX_ACTIVE_LAYERS>,
     pub state: [[State<Instant, Duration>; ROWS]; COLS],
     pub map: [[[Action; ROWS]; COLS]; LAYERS],
 }
@@ -338,7 +340,7 @@ mod tests {
         let mut keymap = Keymap {
             tap_duration: 0,
             state: [[State::default(); 2]; 2],
-            layers: Vec::<u8, 1>::new(),
+            layers: Vec::<Layer, 1>::new(),
             map: [make_keymap![[A, B], [C, D]]; 1],
         };
         let expected: Vec<Keyboard, 4> = Vec::from_slice(&[])?;
@@ -355,7 +357,7 @@ mod tests {
         let mut keymap = Keymap {
             tap_duration: 0,
             state: [[State::default(); 2]; 2],
-            layers: Vec::<u8, 1>::new(),
+            layers: Vec::<Layer, 1>::new(),
             map: [make_keymap![[A, B], [C, D]]; 1],
         };
         let expected: Vec<Keyboard, 4> = Vec::from_slice(&[Keyboard::B])?;
@@ -372,7 +374,7 @@ mod tests {
         let mut keymap = Keymap {
             tap_duration: 0,
             state: [[State::default(); 2]; 2],
-            layers: Vec::<u8, 1>::new(),
+            layers: Vec::<Layer, 1>::new(),
             map: [make_keymap![[A, B], [C, D]]; 1],
         };
         let expected: Vec<Keyboard, 4> =
@@ -387,7 +389,7 @@ mod tests {
         let mut keymap = Keymap {
             tap_duration: 0,
             state: [[State::default(); 2]; 1],
-            layers: Vec::<u8, 1>::new(),
+            layers: Vec::<Layer, 1>::new(),
             #[rustfmt::skip]
             map: make_keymap![
                 [[(L 1), A,]],
@@ -395,7 +397,7 @@ mod tests {
             ],
         };
         let expected: Vec<Keyboard, 2> = Vec::from_slice(&[])?;
-        let layers: Vec<u8, 2> = Vec::from_slice(&[1])?;
+        let layers: Vec<Layer, 2> = Vec::from_slice(&[1])?;
         assert_eq!(keymap.get_keys::<2>(pressed, 0), expected);
         assert_eq!(keymap.layers, layers);
 
@@ -407,12 +409,12 @@ mod tests {
         let pressed: Vec<Vec<bool, 2>, 1> = Vec::from_slice(&[Vec::from_slice(&[false, true])?])?;
         let expected: Vec<Keyboard, 2> = Vec::from_slice(&[Keyboard::B])?;
         assert_eq!(keymap.get_keys::<2>(pressed, 0), expected);
-        assert_eq!(keymap.layers, Vec::<u8, 1>::new());
+        assert_eq!(keymap.layers, Vec::<Layer, 1>::new());
 
         let pressed: Vec<Vec<bool, 2>, 1> = Vec::from_slice(&[Vec::from_slice(&[false, false])?])?;
         let expected: Vec<Keyboard, 2> = Vec::from_slice(&[])?;
         assert_eq!(keymap.get_keys::<2>(pressed, 0), expected);
-        assert_eq!(keymap.layers, Vec::<u8, 1>::new());
+        assert_eq!(keymap.layers, Vec::<Layer, 1>::new());
         Ok(())
     }
 
@@ -422,7 +424,7 @@ mod tests {
         let mut keymap = Keymap {
             tap_duration: 5,
             state: [[State::default(); 1]; 1],
-            layers: Vec::<u8, 1>::new(),
+            layers: Vec::<Layer, 1>::new(),
             #[rustfmt::skip]
             map: make_keymap![
                 [[(MT A B)]],
@@ -447,7 +449,7 @@ mod tests {
         let mut keymap = Keymap {
             tap_duration: 2,
             state: [[State::default(); 1]; 1],
-            layers: Vec::<u8, 1>::new(),
+            layers: Vec::<Layer, 1>::new(),
             #[rustfmt::skip]
             map: make_keymap![
                 [[(MT A B)]],
