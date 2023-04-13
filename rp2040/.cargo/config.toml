@@ -1,9 +1,9 @@
 [alias]
 # Use `probe-run --list-probes` and change the probe values to what you have
 # The device attached to the computer via USB
-rusb = "run --release -- --probe=6E06C92B3D591882"
+lhs = "run                --release -- --probe=6E06C92B3D591882"
 # The device attached to the USB device via I2C/IIC (Inter-Integrated Circuit)
-riic = "run --release -- --probe=6E06C92B3D462392"
+rhs = "run --features rhs --release -- --probe=6E06C92B3D462392"
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 # Choose a default "cargo run" tool:
