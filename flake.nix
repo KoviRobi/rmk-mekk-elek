@@ -1,29 +1,35 @@
 {
   inputs = {
-    naersk.url = "github:nix-community/naersk/master";
-    naersk.inputs.nixpkgs.follows = "nixpkgs";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    utils.url = "github:numtide/flake-utils";
+    rust-overlay.url = "github:oxalica/rust-overlay";
+    rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, utils, naersk }:
-    utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs { inherit system; };
-        naersk-lib = pkgs.callPackage naersk { };
-      in
-      {
-        defaultPackage = naersk-lib.buildPackage ./.;
-        devShell = with pkgs; mkShell {
-          buildInputs = [
-            rustup
-            # cargo
-            rust-analyzer
-            flip-link
-            probe-run
-            gcc-arm-embedded
-          ];
-          RUST_SRC_PATH = rustPlatform.rustLibSrc;
-        };
-      });
+  outputs = { self, rust-overlay, nixpkgs }:
+    let
+      system = "x86_64-linux";
+      overlays = [ (import rust-overlay) ];
+      pkgs = import nixpkgs {
+        inherit overlays system;
+      };
+    in
+    {
+      devShells.${system}.default = pkgs.mkShell {
+        buildInputs = [
+          # (pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
+          #   targets = [ "thumbv6m-none-eabi" ];
+          #   extensions = [ "rust-src" ];
+          # }))
+          (pkgs.rust-bin.stable.latest.default.override {
+            extensions = [ "rust-src" ];
+            targets = [ "thumbv6m-none-eabi" ];
+          })
+          pkgs.rust-analyzer
+          pkgs.flip-link
+          pkgs.probe-run
+          pkgs.elf2uf2-rs
+          pkgs.rustfmt
+        ];
+      };
+    };
 }
