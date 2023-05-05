@@ -47,6 +47,7 @@ mod app {
 
     use rp_pico as bsp;
 
+    use rmk_mekk_elek::debounce::SchmittDebouncer;
     use rmk_mekk_elek::matrix::decode;
 
     use super::*;
@@ -84,6 +85,7 @@ mod app {
         rows: Vec<hal::gpio::DynPin, ROWS>,
         cols: Vec<hal::gpio::DynPin, COLS>,
         keymap: KeymapT,
+        debouncer: SchmittDebouncer<SIZE, 10>,
     }
 
     #[init(local = [usb_alloc: Option<UsbBusAllocator<hal::usb::UsbBus>> = None])]
@@ -184,6 +186,7 @@ mod app {
                 rows,
                 cols,
                 keymap: keymap(),
+                debouncer: Default::default(),
             },
             init::Monotonics(mono),
         )
@@ -207,17 +210,18 @@ mod app {
 
     #[task(
         shared = [keyboard],
-        local = [rows, cols, keymap]
+        local = [rows, cols, keymap, debouncer],
     )]
     fn write_keyboard(mut cx: write_keyboard::Context, scheduled: Instant) {
         cx.shared.keyboard.lock(|k| {
-            let pressed = decode(cx.local.cols, cx.local.rows, true)
+            let mut pressed = decode(cx.local.cols, cx.local.rows, true)
                 .unwrap()
                 .into_iter()
                 .flatten()
                 .collect::<Vec<_, SIZE>>()
                 .into_array()
                 .unwrap();
+            cx.local.debouncer.debounce(&mut pressed);
             cx.local.keymap.process(pressed, scheduled.ticks());
             match k
                 .interface()
@@ -232,7 +236,7 @@ mod app {
             }
         });
 
-        let next = scheduled + 50.millis();
+        let next = scheduled + 1.millis();
         write_keyboard::spawn_at(next, next).unwrap();
     }
 
