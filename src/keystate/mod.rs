@@ -24,8 +24,8 @@ trait Keyish {
 }
 
 type Layer = u8;
-type Duration = u32;
-type Instant = u32;
+type Duration = u64;
+type Instant = u64;
 
 /// Shorthand for `use keystate::Key::*` and for using K, L, MT to create a keymap
 #[derive(Debug, Clone, Copy)]

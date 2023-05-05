@@ -4,41 +4,52 @@
 use defmt_rtt as _;
 use panic_probe as _;
 
+const ROWS: usize = 6;
+const COLS: usize = 6;
+const SIZE: usize = ROWS * COLS;
+const LAYERS: usize = 2;
+const ROLLOVER: usize = 32;
+use rmk_mekk_elek::keystate::Keymap;
+type KeymapT = Keymap<SIZE, LAYERS, ROLLOVER>;
+
+use fugit::ExtU64;
+use rp2040_monotonic::Rp2040Monotonic;
+type Duration = <Rp2040Monotonic as rtic::Monotonic>::Duration;
+
+pub fn keymap() -> KeymapT {
+    use rmk_mekk_elek::keystate::prelude::*;
+    let mod_timeout: Duration = 200.millis();
+    let tap_release: Duration = 100.millis();
+    let tap_repeat: Duration = 500.millis();
+
+    #[rustfmt::skip]
+    let ret_statement = Keymap::new([[
+            Kb(Equal),   Kb(K0),      Kb(K1),      Kb(K2),      Kb(K3),      Kb(K4),
+            Kb(BSL),     Kb(Q),       Kb(W),       Kb(E),       Kb(R),       Kb(T),
+            Kb(Escape),  MT(LSFT, A), MT(LSFT, S), MT(LCTL, D), MT(LCTL, F), Kb(G),
+            Kb(LSFT),    MT(LWIN, Z), MT(LWIN, X), MT(LALT, C), MT(LALT, V), Kb(B),
+            Kb(LWIN),    Kb(LEFT),    Kb(DOWN),    Kb(UP),      Kb(RIGHT),   Kb(Space) /* (MT (L 1) SPACE)*/,
+            Kb(___),     Kb(___),     Kb(___),     Kb(___),     Kb(___),     Kb(___),
+        ], [
+            Kb(F1),     Kb(F2),     Kb(F3),     Kb(F4),     Kb(F5),     Kb(F6),
+            Kb(___),    Kb(___),    Kb(___),    Kb(___),    Kb(___),    Kb(___),
+            Kb(___),    Kb(___),    Kb(___),    Kb(___),    Kb(___),    Kb(___),
+            Kb(___),    Kb(___),    Kb(___),    Kb(___),    Kb(___),    Kb(___),
+            Kb(___),    Kb(___),    Kb(___),    Kb(___),    Kb(___),    Kb(___),
+            Kb(___),    Kb(___),    Kb(___),    Kb(___),    Kb(___),    Kb(___),
+        ]],
+        mod_timeout.ticks(), tap_release.ticks(), tap_repeat.ticks());
+    ret_statement
+}
+
 #[rtic::app(device = rp_pico::hal::pac, peripherals = true, dispatchers = [XIP_IRQ])]
 mod app {
 
     use rp_pico as bsp;
 
-    use rmk_mekk_elek::keymap::make_keymap;
-    use rmk_mekk_elek::keymap::Action;
-    use rmk_mekk_elek::keymap::Keymap;
-    use rmk_mekk_elek::keymap::State;
     use rmk_mekk_elek::matrix::decode;
 
-    const ROWS: usize = 6;
-    const COLS: usize = 6;
-    const LAYERS: usize = 2;
-
-    // For alignment with `vi]:EasyAlign <C-r>4<CR>*,
-    #[rustfmt::skip]
-    pub const KEYMAP: [[[Action; COLS]; ROWS]; LAYERS] = make_keymap![
-      [
-        [Eql,    0,             1,             2,             3,             4],
-        [Bsl,    Q,             W,             E,             R,             T],
-        [Esc,    (MT LSf A),    (MT LSf S),    (MT LCl D),    (MT LCl F),    G],
-        [LSf,    (MT LWn Z),    (MT LWn X),    (MT LAl C),    (MT LAl V),    B],
-        [LWn,    Left,          Down,          Up,            Right,         (MT (L 1) Space)],
-        [NOP,    NOP,           NOP,           NOP,           NOP,           NOP],
-      ],
-      [
-        [F1,     F2,     F3,     F4,     F5,     F6],
-        [NOP,    NOP,    NOP,    NOP,    NOP,    NOP],
-        [NOP,    NOP,    NOP,    NOP,    NOP,    NOP],
-        [NOP,    NOP,    NOP,    NOP,    NOP,    NOP],
-        [NOP,    NOP,    NOP,    NOP,    NOP,    NOP],
-        [NOP,    NOP,    NOP,    NOP,    NOP,    NOP],
-      ],
-    ];
+    use super::*;
 
     use bsp::{
         hal::{self, clocks::init_clocks_and_plls, watchdog::Watchdog, Sio},
@@ -57,7 +68,6 @@ mod app {
     #[monotonic(binds = TIMER_IRQ_0, default = true)]
     type AppMonotonic = Rp2040Monotonic;
     type Instant = <Rp2040Monotonic as rtic::Monotonic>::Instant;
-    type Duration = <Rp2040Monotonic as rtic::Monotonic>::Duration;
 
     #[shared]
     struct Shared {
@@ -73,7 +83,7 @@ mod app {
         led: hal::gpio::Pin<hal::gpio::pin::bank0::Gpio25, hal::gpio::PushPullOutput>,
         rows: Vec<hal::gpio::DynPin, ROWS>,
         cols: Vec<hal::gpio::DynPin, COLS>,
-        keymap: Keymap<Instant, Duration, 6, 6, 2, 2>,
+        keymap: KeymapT,
     }
 
     #[init(local = [usb_alloc: Option<UsbBusAllocator<hal::usb::UsbBus>> = None])]
@@ -164,13 +174,6 @@ mod app {
         tick::spawn(now).unwrap();
         write_keyboard::spawn(now).unwrap();
 
-        let keymap = Keymap {
-            tap_duration: 200.millis(),
-            state: [[State::default(); ROWS]; COLS],
-            layers: Vec::new(),
-            map: KEYMAP,
-        };
-
         (
             Shared {
                 keyboard,
@@ -180,7 +183,7 @@ mod app {
                 led,
                 rows,
                 cols,
-                keymap,
+                keymap: keymap(),
             },
             init::Monotonics(mono),
         )
@@ -208,9 +211,18 @@ mod app {
     )]
     fn write_keyboard(mut cx: write_keyboard::Context, scheduled: Instant) {
         cx.shared.keyboard.lock(|k| {
-            let pressed = decode(cx.local.cols, cx.local.rows, true).unwrap();
-            let keys = cx.local.keymap.get_keys::<36>(pressed, scheduled);
-            match k.interface().write_report(keys.iter()) {
+            let pressed = decode(cx.local.cols, cx.local.rows, true)
+                .unwrap()
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_, SIZE>>()
+                .into_array()
+                .unwrap();
+            cx.local.keymap.process(pressed, scheduled.ticks());
+            match k
+                .interface()
+                .write_report(cx.local.keymap.pressed_keys.iter())
+            {
                 Err(UsbHidError::WouldBlock) => {}
                 Err(UsbHidError::Duplicate) => {}
                 Ok(_) => {}

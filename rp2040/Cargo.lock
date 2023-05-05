@@ -840,3 +840,8 @@ checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
 dependencies = [
  "tap",
 ]
+
+[[patch.unused]]
+name = "usbd-human-interface-device"
+version = "0.4.1"
+source = "git+https://github.com/KoviRobi/usbd-human-interface-device.git?branch=page-defmt#f663dd7fbd3356df417e1e132b8d74a7ad089a9e"
