@@ -63,7 +63,7 @@ mod app {
     use rp2040_monotonic::Rp2040Monotonic;
     use usb_device::class_prelude::*;
     use usb_device::prelude::*;
-    use usbd_human_interface_device::device::keyboard::NKROBootKeyboardInterface;
+    use usbd_human_interface_device::device::keyboard::{NKROBootKeyboard, NKROBootKeyboardConfig};
     use usbd_human_interface_device::prelude::*;
 
     #[monotonic(binds = TIMER_IRQ_0, default = true)]
@@ -73,8 +73,9 @@ mod app {
     #[shared]
     struct Shared {
         keyboard: UsbHidClass<
+            'static,
             hal::usb::UsbBus,
-            HList!(NKROBootKeyboardInterface<'static, hal::usb::UsbBus>),
+            HList!(NKROBootKeyboard<'static, hal::usb::UsbBus>),
         >,
         usb_device: UsbDevice<'static, hal::usb::UsbBus>,
     }
@@ -157,7 +158,7 @@ mod app {
             )));
 
         let keyboard = UsbHidClassBuilder::new()
-            .add_interface(NKROBootKeyboardInterface::default_config())
+            .add_device(NKROBootKeyboardConfig::default())
             .build(usb_alloc);
 
         // https://pid.codes
@@ -196,7 +197,7 @@ mod app {
         shared = [keyboard],
     )]
     fn tick(mut cx: tick::Context, scheduled: Instant) {
-        cx.shared.keyboard.lock(|k| match k.interface().tick() {
+        cx.shared.keyboard.lock(|k| match k.tick() {
             Err(UsbHidError::WouldBlock) => {}
             Ok(_) => {}
             Err(e) => {
@@ -224,8 +225,8 @@ mod app {
             cx.local.debouncer.debounce(&mut pressed);
             cx.local.keymap.process(pressed, scheduled.ticks());
             match k
-                .interface()
-                .write_report(cx.local.keymap.pressed_keys.iter())
+                .device()
+                .write_report(cx.local.keymap.pressed_keys.iter().cloned())
             {
                 Err(UsbHidError::WouldBlock) => {}
                 Err(UsbHidError::Duplicate) => {}
@@ -248,7 +249,7 @@ mod app {
     fn usb_irq(cx: usb_irq::Context) {
         (cx.shared.keyboard, cx.shared.usb_device).lock(|keyboard, usb_device| {
             if usb_device.poll(&mut [keyboard]) {
-                let interface = keyboard.interface();
+                let interface = keyboard.device();
                 match interface.read_report() {
                     Err(UsbError::WouldBlock) => {}
                     Err(e) => {
