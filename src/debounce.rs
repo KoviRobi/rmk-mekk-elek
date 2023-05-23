@@ -18,7 +18,9 @@ impl<const KEYS: usize, const INCREMENT: u8, const LO_TO_HI: u8, const HI_TO_LO:
         }
     }
 
-    pub fn debounce(&mut self, presses: &mut [bool; KEYS]) {
+    /// Returns if any keys had a change
+    pub fn debounce(&mut self, presses: &mut [bool; KEYS]) -> bool {
+        let mut changed = false;
         for (i, key) in presses.iter_mut().enumerate() {
             if *key {
                 self.key_value[i] = self.key_value[i].saturating_add(INCREMENT)
@@ -26,14 +28,19 @@ impl<const KEYS: usize, const INCREMENT: u8, const LO_TO_HI: u8, const HI_TO_LO:
                 self.key_value[i] = self.key_value[i].saturating_sub(INCREMENT)
             }
 
+            let prev_state = self.key_state[i];
+
             if self.key_value[i] < HI_TO_LO {
                 self.key_state[i] = false;
             } else if self.key_value[i] > LO_TO_HI {
                 self.key_state[i] = true;
             }
 
+            changed = changed || (prev_state != self.key_state[i]);
+
             *key = self.key_state[i];
         }
+        changed
     }
 }
 
