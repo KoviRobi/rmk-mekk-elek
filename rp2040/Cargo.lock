@@ -523,6 +523,7 @@ dependencies = [
  "panic-probe",
  "rmk-mekk-elek",
  "rp-pico",
+ "rp2040-hal",
  "rp2040-monotonic",
  "usb-device",
  "usbd-human-interface-device",
@@ -559,6 +560,7 @@ checksum = "1ecf1b975581f0cac465247c464e7d2b8d93c7a5fceb4eb13b7b8517f4f85f6d"
 dependencies = [
  "cortex-m",
  "critical-section",
+ "defmt",
  "embedded-hal",
  "fugit",
  "itertools",
