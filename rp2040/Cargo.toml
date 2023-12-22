@@ -25,11 +25,10 @@ rp2040-monotonic = "1.2"
 defmt = "0.3"
 defmt-rtt = "0.4"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
-
-rp-pico = "0.6"
+rp-pico = "0.8.0"
 heapless = { version = "0.7.16", features = ["defmt", "defmt-impl"] }
 no-std-compat = "0.4.1"
-rp2040-hal = { version = "0.7.0", features = ["defmt"] }
+rp2040-hal = { version = "0.9.1", features = ["defmt"] }
 
 # cargo build/run
 [profile.dev]

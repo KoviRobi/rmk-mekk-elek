@@ -53,6 +53,8 @@ mod app {
     use super::*;
 
     use bsp::{
+        hal::gpio::bank0::*,
+        hal::gpio::{DynPinId, FunctionSio, Pin, PullDown, SioInput, SioOutput},
         hal::{self, clocks::init_clocks_and_plls, watchdog::Watchdog, Sio},
         XOSC_CRYSTAL_FREQ,
     };
@@ -82,9 +84,9 @@ mod app {
 
     #[local]
     struct Local {
-        led: hal::gpio::Pin<hal::gpio::pin::bank0::Gpio25, hal::gpio::PushPullOutput>,
-        rows: Vec<hal::gpio::DynPin, ROWS>,
-        cols: Vec<hal::gpio::DynPin, COLS>,
+        led: Pin<Gpio25, FunctionSio<SioOutput>, PullDown>,
+        rows: Vec<Pin<DynPinId, FunctionSio<SioOutput>, PullDown>, ROWS>,
+        cols: Vec<Pin<DynPinId, FunctionSio<SioInput>, PullDown>, COLS>,
         keymap: KeymapT,
         debouncer: SchmittDebouncer<SIZE, 10>,
     }
@@ -125,22 +127,22 @@ mod app {
 
         let mut rows = Vec::<_, ROWS>::new();
         rows.extend([
-            pins.gpio16.into_push_pull_output().into(),
-            pins.gpio17.into_push_pull_output().into(),
-            pins.gpio18.into_push_pull_output().into(),
-            pins.gpio19.into_push_pull_output().into(),
-            pins.gpio20.into_push_pull_output().into(),
-            pins.gpio21.into_push_pull_output().into(),
+            pins.gpio16.into_push_pull_output().into_dyn_pin(),
+            pins.gpio17.into_push_pull_output().into_dyn_pin(),
+            pins.gpio18.into_push_pull_output().into_dyn_pin(),
+            pins.gpio19.into_push_pull_output().into_dyn_pin(),
+            pins.gpio20.into_push_pull_output().into_dyn_pin(),
+            pins.gpio21.into_push_pull_output().into_dyn_pin(),
         ]);
 
         let mut cols = Vec::<_, COLS>::new();
         cols.extend([
-            pins.gpio10.into_pull_down_input().into(),
-            pins.gpio11.into_pull_down_input().into(),
-            pins.gpio12.into_pull_down_input().into(),
-            pins.gpio13.into_pull_down_input().into(),
-            pins.gpio14.into_pull_down_input().into(),
-            pins.gpio15.into_pull_down_input().into(),
+            pins.gpio10.into_pull_down_input().into_dyn_pin(),
+            pins.gpio11.into_pull_down_input().into_dyn_pin(),
+            pins.gpio12.into_pull_down_input().into_dyn_pin(),
+            pins.gpio13.into_pull_down_input().into_dyn_pin(),
+            pins.gpio14.into_pull_down_input().into_dyn_pin(),
+            pins.gpio15.into_pull_down_input().into_dyn_pin(),
         ]);
 
         let mono = Rp2040Monotonic::new(cx.device.TIMER);
