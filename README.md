@@ -9,5 +9,8 @@ it should serve as a warning that this is a hobbyist project, that I'm writing f
 not because currently I use it (I have not got around to finishing the keyboard I started
 writing this for -- currently I still use my ErgoDox which has QMK on it).
 
+This should also serve as a disclaimer -- I make no promises about this software and accept
+no liability.
+
 However if you do find this useful, I'd be curious, just drop me a line, or start a GitHub
 discussion, etc.
