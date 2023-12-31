@@ -4,231 +4,133 @@
 use defmt_rtt as _;
 use panic_probe as _;
 
+use core::pin::{pin, Pin};
+
 mod keymap;
 use keymap::{keymap, KeymapT, COLS, ROWS, SIZE};
 
-#[rtic::app(device = rp_pico::hal::pac, peripherals = true, dispatchers = [XIP_IRQ])]
-mod app {
+mod lilos_support;
+use lilos_support::fifo::{reset_read_fifo, AsyncFifo};
+use lilos_support::timer::{make_idle_task, Duration, Instant, Timer};
 
-    use rp_pico as bsp;
+use rp_pico as bsp;
 
-    use rmk_mekk_elek::debounce::SchmittDebouncer;
-    use rmk_mekk_elek::matrix::decode;
+use bsp::entry;
+use bsp::{hal, hal::pac};
+use hal::fugit::{self, ExtU64};
+use hal::multicore::{Multicore, Stack};
+use hal::Clock;
+use hal::Sio;
 
-    use super::*;
+use embedded_hal::digital::v2::ToggleableOutputPin;
 
-    use bsp::{
-        hal::gpio::bank0::*,
-        hal::gpio::{DynPinId, FunctionSio, Pin, PullDown, SioInput, SioOutput},
-        hal::{self, clocks::init_clocks_and_plls, watchdog::Watchdog, Sio},
-        XOSC_CRYSTAL_FREQ,
-    };
-    use embedded_hal::digital::v2::*;
-    use frunk::HList;
-    use fugit::ExtU64;
-    use heapless::Vec;
-    use rp2040_monotonic::Rp2040Monotonic;
-    use usb_device::class_prelude::*;
-    use usb_device::prelude::*;
-    use usbd_human_interface_device::device::keyboard::{NKROBootKeyboard, NKROBootKeyboardConfig};
-    use usbd_human_interface_device::prelude::*;
+use panic_probe as _;
 
-    #[monotonic(binds = TIMER_IRQ_0, default = true)]
-    type AppMonotonic = Rp2040Monotonic;
-    type Instant = <Rp2040Monotonic as rtic::Monotonic>::Instant;
+static mut CORE1_STACK: Stack<4096> = Stack::new();
 
-    #[shared]
-    struct Shared {
-        keyboard: UsbHidClass<
-            'static,
-            hal::usb::UsbBus,
-            HList!(NKROBootKeyboard<'static, hal::usb::UsbBus>),
-        >,
-        usb_device: UsbDevice<'static, hal::usb::UsbBus>,
-    }
+#[entry]
+fn core0() -> ! {
+    let mut core = pac::CorePeripherals::take().unwrap();
+    let mut pac = pac::Peripherals::take().unwrap();
+    let mut sio = Sio::new(pac.SIO);
 
-    #[local]
-    struct Local {
-        led: Pin<Gpio25, FunctionSio<SioOutput>, PullDown>,
-        rows: Vec<Pin<DynPinId, FunctionSio<SioOutput>, PullDown>, ROWS>,
-        cols: Vec<Pin<DynPinId, FunctionSio<SioInput>, PullDown>, COLS>,
-        keymap: KeymapT,
-        debouncer: SchmittDebouncer<SIZE, 10>,
-    }
+    // Set up the watchdog driver - needed by the clock setup code
+    let mut watchdog = hal::watchdog::Watchdog::new(pac.WATCHDOG);
+    // Configure the clocks
+    let clocks = hal::clocks::init_clocks_and_plls(
+        bsp::XOSC_CRYSTAL_FREQ,
+        pac.XOSC,
+        pac.CLOCKS,
+        pac.PLL_SYS,
+        pac.PLL_USB,
+        &mut pac.RESETS,
+        &mut watchdog,
+    )
+    .ok()
+    .unwrap();
+    let sys_clk = clocks.system_clock.freq();
 
-    #[init(local = [usb_alloc: Option<UsbBusAllocator<hal::usb::UsbBus>> = None])]
-    fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
-        // Soft-reset does not release the hardware spinlocks
-        // Release them now to avoid a deadlock after debug or watchdog reset
-        unsafe {
-            hal::sio::spinlock_reset();
+    let pins = hal::gpio::Pins::new(
+        pac.IO_BANK0,
+        pac.PADS_BANK0,
+        sio.gpio_bank0,
+        &mut pac.RESETS,
+    );
+
+    let mut mc = Multicore::new(&mut pac.PSM, &mut pac.PPB, &mut sio.fifo);
+    let cores = mc.cores();
+    let _task = cores[1].spawn(unsafe { &mut CORE1_STACK.mem }, move || {
+        core1(sys_clk, pins);
+    });
+
+    let compute_delay = pin!(async {
+        /// How much we adjust the LED period every cycle
+        const INC: i32 = 2;
+        /// The minimum LED toggle interval we allow for.
+        const MIN: i32 = 0;
+        /// The maximum LED toggle interval period we allow for. Keep it reasonably short so it's easy to see.
+        const MAX: i32 = 100;
+        loop {
+            for period in (MIN..MAX).step_by(INC as usize) {
+                sio.fifo.write_async(period as u32).await;
+            }
+            for period in (MIN..MAX).step_by(INC as usize).rev() {
+                sio.fifo.write_async(period as u32).await;
+            }
         }
+    });
 
-        let mut resets = cx.device.RESETS;
-        let mut watchdog = Watchdog::new(cx.device.WATCHDOG);
-        let clocks = init_clocks_and_plls(
-            XOSC_CRYSTAL_FREQ,
-            cx.device.XOSC,
-            cx.device.CLOCKS,
-            cx.device.PLL_SYS,
-            cx.device.PLL_USB,
-            &mut resets,
-            &mut watchdog,
-        )
-        .ok()
-        .unwrap();
+    lilos::create_list!(timer_list, Instant::from_ticks(0));
+    let timer_list = timer_list.as_ref();
+    let timer = Timer { timer_list };
 
-        let sio = Sio::new(cx.device.SIO);
-        let pins = rp_pico::Pins::new(
-            cx.device.IO_BANK0,
-            cx.device.PADS_BANK0,
-            sio.gpio_bank0,
-            &mut resets,
-        );
-        let mut led = pins.led.into_push_pull_output();
-        let usb_conn = pins.vbus_detect.into_floating_input();
-        defmt::info!("USB input: {}", usb_conn.is_high());
-        led.set_low().unwrap();
+    // Set up and run the scheduler with a single task.
+    lilos::exec::run_tasks_with_idle(
+        &mut [compute_delay],   // <-- array of tasks
+        lilos::exec::ALL_TASKS, // <-- which to start initially
+        &timer,
+        0,
+        // We use `SEV` to signal from the other core that we can send more
+        // data. See also the comment above on SEVONPEND
+        cortex_m::asm::wfe,
+    )
+}
 
-        let mut rows = Vec::<_, ROWS>::new();
-        rows.extend([
-            pins.gpio16.into_push_pull_output().into_dyn_pin(),
-            pins.gpio17.into_push_pull_output().into_dyn_pin(),
-            pins.gpio18.into_push_pull_output().into_dyn_pin(),
-            pins.gpio19.into_push_pull_output().into_dyn_pin(),
-            pins.gpio20.into_push_pull_output().into_dyn_pin(),
-            pins.gpio21.into_push_pull_output().into_dyn_pin(),
-        ]);
+fn core1(sys_clk: fugit::Rate<u32, 1, 1>, pins: hal::gpio::Pins) {
+    // Because both core's peripherals are mapped to the same address, this
+    // is not necessary, but serves as a reminder that core 1 has its own
+    // core peripherals
+    // See also https://github.com/rust-embedded/cortex-m/issues/149
+    let mut core = unsafe { pac::CorePeripherals::steal() };
+    let pac = unsafe { pac::Peripherals::steal() };
+    let mut sio = hal::Sio::new(pac.SIO);
 
-        let mut cols = Vec::<_, COLS>::new();
-        cols.extend([
-            pins.gpio10.into_pull_down_input().into_dyn_pin(),
-            pins.gpio11.into_pull_down_input().into_dyn_pin(),
-            pins.gpio12.into_pull_down_input().into_dyn_pin(),
-            pins.gpio13.into_pull_down_input().into_dyn_pin(),
-            pins.gpio14.into_pull_down_input().into_dyn_pin(),
-            pins.gpio15.into_pull_down_input().into_dyn_pin(),
-        ]);
+    lilos::create_list!(timer_list, Instant::from_ticks(0));
+    let timer_list = timer_list.as_ref();
+    let timer = Timer { timer_list };
+    let idle_task = make_idle_task(&mut core, timer_list, sys_clk.to_MHz());
 
-        let mono = Rp2040Monotonic::new(cx.device.TIMER);
+    reset_read_fifo(&mut sio.fifo);
 
-        // USB
-        let usb_alloc = cx
-            .local
-            .usb_alloc
-            .insert(UsbBusAllocator::new(hal::usb::UsbBus::new(
-                cx.device.USBCTRL_REGS,
-                cx.device.USBCTRL_DPRAM,
-                clocks.usb_clock,
-                true,
-                &mut resets,
-            )));
+    let mut led = pins.gpio25.into_push_pull_output();
 
-        let keyboard = UsbHidClassBuilder::new()
-            .add_device(NKROBootKeyboardConfig::default())
-            .build(usb_alloc);
+    // Create a task to blink the LED. You could also write this as an `async
+    // fn` but we've inlined it as an `async` block for simplicity.
+    let blink = pin!(async {
+        // Loop forever, blinking things. Note that this borrows the device
+        // peripherals `p` from the enclosing stack frame.
+        loop {
+            let delay = sio.fifo.read_async().await as u64;
+            lilos::time::sleep_for(&timer, delay.millis()).await;
+            led.toggle().unwrap();
+        }
+    });
 
-        // https://pid.codes
-        let usb_device = UsbDeviceBuilder::new(usb_alloc, UsbVidPid(0x1209, 0x0001))
-            .manufacturer("usbd-human-interface-device")
-            .product("Keyboard")
-            .serial_number("TEST")
-            .build();
-
-        // Enable the USB interrupt
-        unsafe {
-            bsp::pac::NVIC::unmask(hal::pac::Interrupt::USBCTRL_IRQ);
-        };
-
-        let now = monotonics::now();
-        tick::spawn(now).unwrap();
-        write_keyboard::spawn(now).unwrap();
-
-        (
-            Shared {
-                keyboard,
-                usb_device,
-            },
-            Local {
-                led,
-                rows,
-                cols,
-                keymap: keymap(),
-                debouncer: Default::default(),
-            },
-            init::Monotonics(mono),
-        )
-    }
-
-    #[task(
-        shared = [keyboard],
-    )]
-    fn tick(mut cx: tick::Context, scheduled: Instant) {
-        cx.shared.keyboard.lock(|k| match k.tick() {
-            Err(UsbHidError::WouldBlock) => {}
-            Ok(_) => {}
-            Err(e) => {
-                core::panic!("Failed to process keyboard tick: {:?}", e)
-            }
-        });
-
-        let next = scheduled + 1.millis();
-        tick::spawn_at(next, next).unwrap();
-    }
-
-    #[task(
-        shared = [keyboard],
-        local = [rows, cols, keymap, debouncer],
-    )]
-    fn write_keyboard(mut cx: write_keyboard::Context, scheduled: Instant) {
-        cx.shared.keyboard.lock(|k| {
-            let mut pressed = decode(cx.local.cols, cx.local.rows, true)
-                .unwrap()
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_, SIZE>>()
-                .into_array()
-                .unwrap();
-            cx.local.debouncer.debounce(&mut pressed);
-            cx.local.keymap.process(pressed, scheduled.ticks());
-            match k
-                .device()
-                .write_report(cx.local.keymap.pressed_keys.iter().cloned())
-            {
-                Err(UsbHidError::WouldBlock) => {}
-                Err(UsbHidError::Duplicate) => {}
-                Ok(_) => {}
-                Err(e) => {
-                    core::panic!("Failed to write keyboard report: {:?}", e)
-                }
-            }
-        });
-
-        let next = scheduled + 1.millis();
-        write_keyboard::spawn_at(next, next).unwrap();
-    }
-
-    #[task(
-        binds = USBCTRL_IRQ,
-        shared = [keyboard, usb_device],
-        local = [led]
-    )]
-    fn usb_irq(cx: usb_irq::Context) {
-        (cx.shared.keyboard, cx.shared.usb_device).lock(|keyboard, usb_device| {
-            if usb_device.poll(&mut [keyboard]) {
-                let interface = keyboard.device();
-                match interface.read_report() {
-                    Err(UsbError::WouldBlock) => {}
-                    Err(e) => {
-                        core::panic!("Failed to read keyboard report: {:?}", e)
-                    }
-                    Ok(leds) => cx
-                        .local
-                        .led
-                        .set_state(PinState::from(leds.num_lock))
-                        .unwrap(),
-                }
-            }
-        })
-    }
+    lilos::exec::run_tasks_with_idle(
+        &mut [blink],           // <-- array of tasks
+        lilos::exec::ALL_TASKS, // <-- which to start initially
+        &timer,
+        1,
+        idle_task,
+    )
 }

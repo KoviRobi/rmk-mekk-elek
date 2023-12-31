@@ -564,6 +564,7 @@ dependencies = [
  "no-std-compat",
  "packed_struct",
  "panic-probe",
+ "pin-project-lite",
  "portable-atomic",
  "rmk-mekk-elek",
  "rp-pico",
