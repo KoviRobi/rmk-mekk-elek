@@ -21,14 +21,13 @@ cortex-m = "0.7"
 cortex-m-rt = "0.7"
 embedded-hal = { version = "0.2", features = ["unproven"] }
 rp2040-monotonic = "1.2"
-
-defmt = "0.3"
+defmt = "0.3.5"
 defmt-rtt = "0.4"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 rp-pico = "0.8.0"
 heapless = { version = "0.7.16", features = ["defmt", "defmt-impl"] }
 no-std-compat = "0.4.1"
-rp2040-hal = { version = "0.9.1", features = ["defmt", "critical-section-impl"] }
+rp2040-hal = { version = "0.9.1", features = ["defmt", "critical-section-impl", "rp2040-e5"] }
 lilos = { git = "https://github.com/KoviRobi/lilos", rev = "refs/heads/rp2040-multicore-with-example", version = "1.0.0-pre.0", default-features = false, features = [ "mutex", "spsc", "timer", "2core" ] }
 portable-atomic = { version = "1.6.0", default-features = false, features = ["critical-section"] }
 pin-project-lite = "0.2.13"
