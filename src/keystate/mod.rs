@@ -103,7 +103,7 @@ impl<const SIZE: usize, const LAYERS: usize, const ROLLOVER: usize> Keymap<SIZE,
         }
     }
 
-    pub fn process(&mut self, keypresses: [bool; SIZE], now: Instant) {
+    pub fn process(&mut self, keypresses: &[bool; SIZE], now: Instant) {
         self.pressed_keys.clear();
         for (key, pressed) in self.keys.iter_mut().zip(keypresses) {
             if key.layers[key.current as usize].is_finished() {
@@ -111,16 +111,16 @@ impl<const SIZE: usize, const LAYERS: usize, const ROLLOVER: usize> Keymap<SIZE,
             };
             match &mut key.layers[key.current as usize] {
                 Key::Button(state) => {
-                    state.key_transition(pressed);
+                    state.key_transition(*pressed);
                     if let Some(key) = state.get_key() {
                         if self.pressed_keys.push(key).is_err() {
                             self.flags.rollover = true;
                         }
                     }
                 }
-                Key::Layer(state) => state.layer_transition(pressed, &mut self.layers),
+                Key::Layer(state) => state.layer_transition(*pressed, &mut self.layers),
                 Key::ModTap(state) => {
-                    state.modtap_transition(pressed, now, &self.modtap_config);
+                    state.modtap_transition(*pressed, now, &self.modtap_config);
                     if let Some(key) = state.get_key() {
                         if self.pressed_keys.push(key).is_err() {
                             self.flags.rollover = true;
@@ -149,7 +149,7 @@ mod tests {
         );
         assert_eq!(keymap.pressed_keys, []);
 
-        keymap.process([false, false, false], 1);
+        keymap.process(&[false, false, false], 1);
         assert_eq!(keymap.pressed_keys, []);
         assert_eq!(
             keymap.keys[0],
@@ -159,13 +159,13 @@ mod tests {
             }
         );
 
-        keymap.process([true, false, false], 2);
+        keymap.process(&[true, false, false], 2);
         assert_eq!(keymap.pressed_keys, [A]);
 
-        keymap.process([true, true, false], 3);
+        keymap.process(&[true, true, false], 3);
         assert_eq!(keymap.pressed_keys, [A]);
 
-        keymap.process([false, true, false], 4);
+        keymap.process(&[false, true, false], 4);
         assert_eq!(keymap.pressed_keys, []);
         assert_eq!(
             keymap.keys[0],
@@ -175,7 +175,7 @@ mod tests {
             }
         );
 
-        keymap.process([true, true, false], 5);
+        keymap.process(&[true, true, false], 5);
         assert_eq!(keymap.pressed_keys, [B]);
         assert_eq!(
             keymap.keys[0],
@@ -191,13 +191,13 @@ mod tests {
             }
         );
 
-        keymap.process([true, false, true], 6);
+        keymap.process(&[true, false, true], 6);
         assert_eq!(keymap.pressed_keys, [B]);
 
-        keymap.process([true, false, true], 7);
+        keymap.process(&[true, false, true], 7);
         assert_eq!(keymap.pressed_keys, [B]);
 
-        keymap.process([true, false, true], 8);
+        keymap.process(&[true, false, true], 8);
         assert_eq!(keymap.pressed_keys, [B, M]);
     }
 }

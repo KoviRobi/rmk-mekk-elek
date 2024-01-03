@@ -9,28 +9,23 @@ pub fn decode<
     OutputPinT: OutputPin<Error = E>,
     const INPUTS: usize,
     const OUTPUTS: usize,
+    const SIZE: usize,
 >(
     inputs: &mut Vec<InputPinT, INPUTS>,
     outputs: &mut Vec<OutputPinT, OUTPUTS>,
+    keys: &mut [bool; SIZE],
     output_active: bool,
-) -> Result<Vec<Vec<bool, INPUTS>, OUTPUTS>, E> {
+) -> Result<(), E> {
     for output in outputs.iter_mut() {
         output.set_state((!output_active).into())?;
     }
 
-    outputs
-        .iter_mut()
-        .map(move |output| {
-            output.set_state(output_active.into())?;
-
-            let result = inputs
-                .iter_mut()
-                .map(move |input| Ok(input.is_high()? == output_active))
-                .collect();
-
-            output.set_state((!output_active).into())?;
-
-            result
-        })
-        .collect()
+    for (o, output) in outputs.iter_mut().enumerate() {
+        output.set_state(output_active.into())?;
+        for (i, input) in inputs.iter_mut().enumerate() {
+            keys[o * OUTPUTS + i] = input.is_high()? == output_active;
+        }
+        output.set_state((!output_active).into())?;
+    }
+    Ok(())
 }

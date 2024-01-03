@@ -114,6 +114,7 @@ fn core0() -> ! {
     let mut led = pins.led.reconfigure();
     let mut core0_idle_pin = pins.gpio2.reconfigure();
     let mut core1_idle_pin = pins.gpio3.reconfigure();
+    let mut deb_pin = pins.gpio4.reconfigure();
 
     let mut mc = Multicore::new(&mut pac.PSM, &mut pac.PPB, &mut sio.fifo);
     let cores = mc.cores();
@@ -124,6 +125,7 @@ fn core0() -> ! {
             &mut cols,
             keymap_mutex,
             Some(&mut core1_idle_pin),
+            &mut deb_pin,
         );
     });
 
@@ -177,12 +179,13 @@ fn core0() -> ! {
     );
 }
 
-fn core1<'a, P: PinId>(
+fn core1<'a, P: PinId, Q: PinId>(
     sys_clk: fugit::Rate<u32, 1, 1>,
     rows: &'a mut Vec<GpioPin<DynPinId, FunctionSioOutput, PullDown>, ROWS>,
     cols: &'a mut Vec<GpioPin<DynPinId, FunctionSioInput, PullDown>, COLS>,
     keymap_mutex: PtrPin<&Mutex<KeymapT>>,
     core1_idle_pin: Option<&'a mut GpioPin<P, FunctionSioOutput, PullNone>>,
+    deb_pin: &'a mut GpioPin<Q, FunctionSioOutput, PullNone>,
 ) -> ! {
     // Because both core's peripherals are mapped to the same address, this
     // is not necessary, but serves as a reminder that core 1 has its own
@@ -206,7 +209,14 @@ fn core1<'a, P: PinId>(
     reset_read_fifo(&mut sio.fifo);
 
     run_tasks_with_idle(
-        &mut [core::pin::pin!(scan(&timer, cols, rows, keymap_mutex))],
+        &mut [core::pin::pin!(scan(
+            &timer,
+            &mut sio.fifo,
+            cols,
+            rows,
+            keymap_mutex,
+            deb_pin
+        ))],
         ALL_TASKS,
         &timer,
         1,
@@ -214,26 +224,24 @@ fn core1<'a, P: PinId>(
     );
 }
 
-async fn scan<'a>(
+async fn scan<'a, P: PinId>(
     timer: &'a Timer<'a>,
     cols: &'a mut Vec<GpioPin<DynPinId, FunctionSioInput, PullDown>, COLS>,
     rows: &'a mut Vec<GpioPin<DynPinId, FunctionSioOutput, PullDown>, ROWS>,
     keymap_mutex: PtrPin<&'a Mutex<KeymapT>>,
+    deb_pin: &'a mut GpioPin<P, FunctionSioOutput, PullNone>,
 ) -> Infallible {
     let mut gate = lilos::time::PeriodicGate::new(timer, 1.millis());
     let mut debouncer: SchmittDebouncer<36, 1> = Default::default();
+    let mut pressed = [false; COLS * ROWS];
 
     loop {
         keymap_mutex.lock().await.perform(|keymap| {
-            let mut pressed = decode(cols, rows, true)
-                .unwrap()
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_, SIZE>>()
-                .into_array()
-                .unwrap();
+            decode(cols, rows, &mut pressed, true).unwrap();
+            deb_pin.set_high().unwrap();
             debouncer.debounce(&mut pressed);
-            keymap.process(pressed, timer.now().ticks());
+            deb_pin.set_low().unwrap();
+            keymap.process(&pressed, timer.now().ticks());
         });
 
         gate.next_time(timer).await;
