@@ -24,7 +24,10 @@ use rp_pico as bsp;
 use bsp::entry;
 use bsp::{hal, hal::pac};
 use hal::fugit::{self, ExtU64};
-use hal::gpio::{bank0::*, DynPinId, FunctionSioInput, FunctionSioOutput, Pin, PullDown, PullNone};
+use hal::gpio::{
+    bank0::*, DynPinId, FunctionSioInput, FunctionSioOutput, Pin as GpioPin, PinId, PullDown,
+    PullNone,
+};
 use hal::multicore::{Multicore, Stack};
 use hal::Clock;
 use hal::Sio;
@@ -54,7 +57,7 @@ defmt::timestamp!("{:us}", { now() });
 
 #[entry]
 fn core0() -> ! {
-    let mut _core = pac::CorePeripherals::take().unwrap();
+    let mut core = pac::CorePeripherals::take().unwrap();
     let mut pac = pac::Peripherals::take().unwrap();
     let mut sio = Sio::new(pac.SIO);
 
@@ -109,11 +112,19 @@ fn core0() -> ! {
     let keymap_mutex = create_static_mutex!(KeymapT, keymap());
 
     let mut led = pins.led.reconfigure();
+    let mut core0_idle_pin = pins.gpio2.reconfigure();
+    let mut core1_idle_pin = pins.gpio3.reconfigure();
 
     let mut mc = Multicore::new(&mut pac.PSM, &mut pac.PPB, &mut sio.fifo);
     let cores = mc.cores();
     let _task = cores[1].spawn(unsafe { &mut CORE1_STACK.mem }, move || {
-        core1(sys_clk, rows, cols, keymap_mutex);
+        core1(
+            sys_clk,
+            &mut rows,
+            &mut cols,
+            keymap_mutex,
+            Some(&mut core1_idle_pin),
+        );
     });
 
     // USB
@@ -142,6 +153,13 @@ fn core0() -> ! {
     create_list!(timer_list, Instant::from_ticks(0));
     let timer_list = timer_list.as_ref();
     let timer = Timer { timer_list };
+    let idle_task = make_idle_task(
+        &mut core.SYST,
+        &mut core.SCB,
+        timer_list,
+        sys_clk.to_MHz(),
+        Some(&mut core0_idle_pin),
+    );
 
     // Set up and run the scheduler with a single task.
     run_tasks_with_idle(
@@ -155,15 +173,16 @@ fn core0() -> ! {
         0,
         // We use `SEV` to signal from the other core that we can send more
         // data. See also the comment above on SEVONPEND
-        cortex_m::asm::wfe,
+        idle_task,
     );
 }
 
-fn core1(
+fn core1<'a, P: PinId>(
     sys_clk: fugit::Rate<u32, 1, 1>,
-    rows: Vec<Pin<DynPinId, FunctionSioOutput, PullDown>, ROWS>,
-    cols: Vec<Pin<DynPinId, FunctionSioInput, PullDown>, COLS>,
+    rows: &'a mut Vec<GpioPin<DynPinId, FunctionSioOutput, PullDown>, ROWS>,
+    cols: &'a mut Vec<GpioPin<DynPinId, FunctionSioInput, PullDown>, COLS>,
     keymap_mutex: PtrPin<&Mutex<KeymapT>>,
+    core1_idle_pin: Option<&'a mut GpioPin<P, FunctionSioOutput, PullNone>>,
 ) -> ! {
     // Because both core's peripherals are mapped to the same address, this
     // is not necessary, but serves as a reminder that core 1 has its own
@@ -176,7 +195,13 @@ fn core1(
     create_list!(timer_list, Instant::from_ticks(0));
     let timer_list = timer_list.as_ref();
     let timer = Timer { timer_list };
-    let idle_task = make_idle_task(&mut core, timer_list, sys_clk.to_MHz());
+    let idle_task = make_idle_task(
+        &mut core.SYST,
+        &mut core.SCB,
+        timer_list,
+        sys_clk.to_MHz(),
+        core1_idle_pin,
+    );
 
     reset_read_fifo(&mut sio.fifo);
 
@@ -191,8 +216,8 @@ fn core1(
 
 async fn scan<'a>(
     timer: &'a Timer<'a>,
-    mut cols: Vec<Pin<DynPinId, FunctionSioInput, PullDown>, COLS>,
-    mut rows: Vec<Pin<DynPinId, FunctionSioOutput, PullDown>, ROWS>,
+    cols: &'a mut Vec<GpioPin<DynPinId, FunctionSioInput, PullDown>, COLS>,
+    rows: &'a mut Vec<GpioPin<DynPinId, FunctionSioOutput, PullDown>, ROWS>,
     keymap_mutex: PtrPin<&'a Mutex<KeymapT>>,
 ) -> Infallible {
     let mut gate = lilos::time::PeriodicGate::new(timer, 1.millis());
@@ -200,7 +225,7 @@ async fn scan<'a>(
 
     loop {
         keymap_mutex.lock().await.perform(|keymap| {
-            let mut pressed = decode(&mut cols, &mut rows, true)
+            let mut pressed = decode(cols, rows, true)
                 .unwrap()
                 .into_iter()
                 .flatten()
@@ -270,7 +295,7 @@ async fn write_keyboard<'a>(
 async fn usb_irq<'a>(
     keyboard_mutex: PtrPin<&Mutex<UsbHidClass<'a, Rp2040Usb, KeyboardDev<'a>>>>,
     usb_device: &mut UsbDevice<'a, Rp2040Usb>,
-    led: &mut Pin<Gpio25, FunctionSioOutput, PullNone>,
+    led: &mut GpioPin<Gpio25, FunctionSioOutput, PullNone>,
 ) -> Infallible {
     loop {
         unsafe { pac::NVIC::unmask(pac::Interrupt::USBCTRL_IRQ) };

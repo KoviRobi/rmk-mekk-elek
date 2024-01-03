@@ -2,8 +2,10 @@
 use core::pin::Pin;
 use cortex_m::peripheral::syst::SystClkSource;
 use cortex_m_rt::exception;
+use embedded_hal::digital::v2::OutputPin;
 use lilos::list::List;
 use rp2040_hal::fugit;
+use rp2040_hal::gpio::{FunctionSioOutput, Pin as GpioPin, PinId, PullNone};
 use rp2040_hal::pac;
 
 pub type Instant = fugit::Instant<u64, 1, 1_000_000>;
@@ -36,11 +38,13 @@ pub fn now() -> Instant {
     })
 }
 
-pub fn make_idle_task<'a>(
-    core: &'a mut cortex_m::Peripherals,
-    timer_list: Pin<&'a List<Instant>>,
+pub fn make_idle_task<'init, 'closure, P: PinId>(
+    syst: &'closure mut cortex_m::peripheral::SYST,
+    scb: &'init mut cortex_m::peripheral::SCB,
+    timer_list: Pin<&'closure List<Instant>>,
     cycles_per_us: u32,
-) -> impl FnMut() + 'a {
+    mut idle_pin: Option<&'closure mut GpioPin<P, FunctionSioOutput, PullNone>>,
+) -> impl FnMut() + 'closure {
     // Make it so that `wfe` waits for masked interrupts as well as events --
     // the problem is that the idle-task is called with interrupts disabled (to
     // not have an interrupt fire before we call the idle task but after we
@@ -49,12 +53,12 @@ pub fn make_idle_task<'a>(
     // https://www.embedded.com/the-definitive-guide-to-arm-cortex-m0-m0-wake-up-operation/
     const SEVONPEND: u32 = 1 << 4;
     unsafe {
-        core.SCB.scr.modify(|scr| scr | SEVONPEND);
+        scb.scr.modify(|scr| scr | SEVONPEND);
     }
 
     // 24-bit timer
     let max_sleep_us = ((1 << 24) - 1) / cycles_per_us;
-    core.SYST.set_clock_source(SystClkSource::Core);
+    syst.set_clock_source(SystClkSource::Core);
 
     move || {
         match timer_list.peek() {
@@ -65,21 +69,25 @@ pub fn make_idle_task<'a>(
                     let wake_in_ticks = wake_in_us as u32 * cycles_per_us;
                     // Setting zero to the reload register disables systick --
                     // systick is non-zero due to `wake_at > now`
-                    core.SYST.set_reload(wake_in_ticks);
-                    core.SYST.clear_current();
-                    core.SYST.enable_interrupt();
-                    core.SYST.enable_counter();
+                    syst.set_reload(wake_in_ticks);
+                    syst.clear_current();
+                    syst.enable_interrupt();
+                    syst.enable_counter();
+                    idle_pin.as_mut().map(|pin| pin.set_low());
                     // We use `SEV` to signal from the other core that we can
                     // send more data. See also the comment above on SEVONPEND
                     cortex_m::asm::wfe();
+                    idle_pin.as_mut().map(|pin| pin.set_high());
                 } else {
                     // We just missed a timer, don't idle
                 }
             }
             None => {
+                idle_pin.as_mut().map(|pin| pin.set_low());
                 // We use `SEV` to signal from the other core that we can send
                 // more data. See also the comment above on SEVONPEND
                 cortex_m::asm::wfe();
+                idle_pin.as_mut().map(|pin| pin.set_high());
             }
         }
     }
