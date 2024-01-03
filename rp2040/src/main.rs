@@ -53,7 +53,7 @@ static mut CORE1_STACK: Stack<4096> = Stack::new();
 type KeyboardDev<'a> = frunk::HCons<NKROBootKeyboard<'a, Rp2040Usb>, frunk::HNil>;
 static USB_EVT: Notify = Notify::new();
 
-defmt::timestamp!("{:us}", { now() });
+defmt::timestamp!("{} {:us}", Sio::core(), now());
 
 #[entry]
 fn core0() -> ! {
