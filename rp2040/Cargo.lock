@@ -334,7 +334,7 @@ dependencies = [
 [[package]]
 name = "lilos"
 version = "1.0.0-pre.0"
-source = "git+https://github.com/KoviRobi/lilos?rev=refs/heads/rp2040-multicore-with-example#64e3f8c6ec1fd640270a38052b698ea98cd0f3cd"
+source = "git+https://github.com/KoviRobi/lilos?rev=refs/heads/rp2040-multicore-with-example-mutex#0d72c8ea08db689d13f85dafcf3e72f9361fc3e7"
 dependencies = [
  "cfg-if",
  "cortex-m",
