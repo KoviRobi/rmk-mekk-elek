@@ -5,9 +5,8 @@ pub const ROWS: usize = 6;
 pub const COLS: usize = 6;
 pub const SIZE: usize = ROWS * COLS;
 pub const LAYERS: usize = 2;
-pub const ROLLOVER: usize = 32;
 
-pub type KeymapT = Keymap<SIZE, LAYERS, ROLLOVER>;
+pub type KeymapT = Keymap<SIZE, LAYERS>;
 
 use fugit::ExtU64;
 use rp2040_monotonic::Rp2040Monotonic;

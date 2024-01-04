@@ -55,6 +55,8 @@ static USB_EVT: Notify = Notify::new();
 
 defmt::timestamp!("{} {:us}", Sio::core(), now());
 
+const ROLLOVER: usize = 36;
+
 #[entry]
 fn core0() -> ! {
     let mut core = pac::CorePeripherals::take().unwrap();
@@ -234,6 +236,7 @@ async fn scan<'a, P: PinId>(
     let mut gate = lilos::time::PeriodicGate::new(timer, 1.millis());
     let mut debouncer: SchmittDebouncer<36, 1> = Default::default();
     let mut pressed = [false; COLS * ROWS];
+    let mut keys: heapless::Vec<_, ROLLOVER> = Vec::new();
 
     loop {
         keymap_mutex.lock().await.perform(|keymap| {
@@ -241,7 +244,7 @@ async fn scan<'a, P: PinId>(
             deb_pin.set_high().unwrap();
             debouncer.debounce(&mut pressed);
             deb_pin.set_low().unwrap();
-            keymap.process(&pressed, timer.now().ticks());
+            keymap.process(&pressed, &mut keys, timer.now().ticks());
         });
 
         gate.next_time(timer).await;
