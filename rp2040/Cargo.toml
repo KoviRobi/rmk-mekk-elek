@@ -31,6 +31,7 @@ rp2040-hal = { version = "0.9.1", features = ["defmt", "critical-section-impl", 
 lilos = { git = "https://github.com/KoviRobi/lilos", rev = "refs/heads/rp2040-multicore-with-example-mutex", version = "1.0.0-pre.0", default-features = false, features = [ "mutex", "spsc", "timer", "2core" ] }
 portable-atomic = { version = "1.6.0", default-features = false, features = ["critical-section"] }
 pin-project-lite = "0.2.13"
+usbd-serial = "0.1.1"
 
 # cargo build/run
 [profile.dev]

@@ -40,6 +40,7 @@ use usb_device::class_prelude::*;
 use usb_device::prelude::*;
 use usbd_human_interface_device::device::keyboard::{NKROBootKeyboard, NKROBootKeyboardConfig};
 use usbd_human_interface_device::prelude::*;
+use usbd_serial::SerialPort;
 
 use heapless::Vec;
 
@@ -147,6 +148,8 @@ fn core0() -> ! {
             .build(&usb_alloc)
     );
 
+    let mut usb_serial = SerialPort::new(&usb_alloc);
+
     // https://pid.codes
     let mut usb_device = UsbDeviceBuilder::new(&usb_alloc, UsbVidPid(0x1209, 0x0001))
         .manufacturer("usbd-human-interface-device")
@@ -170,7 +173,12 @@ fn core0() -> ! {
         &mut [
             stack_pin!(tick(&timer, keyboard_mutex)),
             stack_pin!(write_keyboard(&timer, keyboard_mutex, keymap_mutex)),
-            stack_pin!(usb_irq(keyboard_mutex, &mut usb_device, &mut led)),
+            stack_pin!(usb_irq(
+                keyboard_mutex,
+                &mut usb_device,
+                &mut usb_serial,
+                &mut led
+            )),
         ],
         ALL_TASKS,
         &timer,
@@ -306,13 +314,15 @@ async fn write_keyboard<'a>(
 async fn usb_irq<'a>(
     keyboard_mutex: PtrPin<&Mutex<UsbHidClass<'a, Rp2040Usb, KeyboardDev<'a>>>>,
     usb_device: &mut UsbDevice<'a, Rp2040Usb>,
+    usb_serial: &mut SerialPort<'a, Rp2040Usb>,
     led: &mut GpioPin<Gpio25, FunctionSioOutput, PullNone>,
 ) -> Infallible {
     loop {
         unsafe { pac::NVIC::unmask(pac::Interrupt::USBCTRL_IRQ) };
         USB_EVT.until_next().await;
+
         keyboard_mutex.lock().await.perform(|keyboard| {
-            if usb_device.poll(&mut [keyboard]) {
+            if usb_device.poll(&mut [keyboard, usb_serial]) {
                 let interface = keyboard.device();
                 match interface.read_report() {
                     Err(UsbError::WouldBlock) => {}
@@ -320,6 +330,19 @@ async fn usb_irq<'a>(
                         core::panic!("Failed to read keyboard report: {:?}", e)
                     }
                     Ok(leds) => led.set_state(leds.num_lock.into()).unwrap(),
+                }
+
+                let mut buf = [0u8; 64];
+                match usb_serial.read(&mut buf) {
+                    Ok(0) => {}
+                    Err(_) => {}
+                    Ok(count) => {
+                        for b in &buf[..count] {
+                            if *b == b'r' {
+                                bsp::hal::rom_data::reset_to_usb_boot(1 << 25, 0);
+                            }
+                        }
+                    }
                 }
             }
         });
