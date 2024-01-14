@@ -36,6 +36,7 @@ use pac::interrupt;
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 
 use hal::usb::UsbBus as Rp2040Usb;
+use rp2040_selfdebug::{dap_execute_command, dap_setup, CmsisDap};
 use usb_device::class_prelude::*;
 use usb_device::prelude::*;
 use usbd_human_interface_device::device::keyboard::{NKROBootKeyboard, NKROBootKeyboardConfig};
@@ -146,10 +147,13 @@ fn core0() -> ! {
 
     let mut usb_serial = SerialPort::new(&usb_alloc);
 
+    let mut usb_dap = CmsisDap::new(&usb_alloc);
+    dap_setup(&pac.SYSCFG.dbgforce);
+
     // https://pid.codes
     let mut usb_device = UsbDeviceBuilder::new(&usb_alloc, UsbVidPid(0x1209, 0x0001))
         .manufacturer("usbd-human-interface-device")
-        .product("Keyboard")
+        .product("Keyboard CMSIS-DAP")
         .serial_number("TEST")
         .build();
 
@@ -176,6 +180,7 @@ fn core0() -> ! {
                 keyboard_mutex,
                 &mut usb_device,
                 &mut usb_serial,
+                &mut usb_dap,
                 &mut led
             )),
         ],
@@ -345,6 +350,7 @@ async fn usb_irq<'a>(
     keyboard_mutex: PtrPin<&Mutex<UsbHidClass<'a, Rp2040Usb, KeyboardDev<'a>>>>,
     usb_device: &mut UsbDevice<'a, Rp2040Usb>,
     usb_serial: &mut SerialPort<'a, Rp2040Usb>,
+    usb_dap: &mut CmsisDap<'a, Rp2040Usb, 64>,
     led: &mut GpioPin<Gpio25, FunctionSioOutput, PullNone>,
 ) -> Infallible {
     loop {
@@ -352,7 +358,7 @@ async fn usb_irq<'a>(
         USB_EVT.until_next().await;
 
         keyboard_mutex.lock().await.perform(|keyboard| {
-            if usb_device.poll(&mut [keyboard, usb_serial]) {
+            if usb_device.poll(&mut [keyboard, usb_serial, usb_dap]) {
                 let interface = keyboard.device();
                 match interface.read_report() {
                     Err(UsbError::WouldBlock) => {}
@@ -372,6 +378,17 @@ async fn usb_irq<'a>(
                                 bsp::hal::rom_data::reset_to_usb_boot(1 << 25, 0);
                             }
                         }
+                    }
+                }
+
+                let mut buf = [0u8; 64];
+                match usb_dap.read(&mut buf) {
+                    Ok(0) => {}
+                    Err(_) => {}
+                    Ok(count) => {
+                        let mut out = [0; 64];
+                        let (_in_size, out_size) = dap_execute_command(&buf, &mut out);
+                        let _ = usb_dap.write(&out[..out_size as usize]);
                     }
                 }
             }

@@ -36,6 +36,15 @@
           pkgs.bear
           # For language server for the C files
           pkgs.ccls
+
+          (pkgs.writeShellScriptBin "attach" ''
+            if [ "$1" = "-r" ]; then
+              ELF=target/thumbv6m-none-eabi/release/rmk-mekk-elek-rp2040
+            else
+              ELF=target/thumbv6m-none-eabi/debug/rmk-mekk-elek-rp2040
+            fi
+            ${pkgs.probe-rs}/bin/probe-rs attach --chip rp2040_selfdebug $ELF
+          '')
         ];
       };
     };

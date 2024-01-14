@@ -32,6 +32,7 @@ lilos = { git = "https://github.com/KoviRobi/lilos", rev = "refs/heads/rp2040-mu
 portable-atomic = { version = "1.6.0", default-features = false, features = ["critical-section"] }
 pin-project-lite = "0.2.13"
 usbd-serial = "0.1.1"
+rp2040-selfdebug = { git = "https://github.com/KoviRobi/rp2040-selfdebug", version = "0.1.0" }
 
 # cargo build/run
 [profile.dev]
