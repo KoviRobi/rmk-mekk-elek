@@ -8,15 +8,15 @@ use core::convert::Infallible;
 use core::pin::{pin as stack_pin, Pin as PtrPin};
 
 mod keymap;
-use keymap::{keymap, KeymapT, COLS, ROWS, SIZE};
+use keymap::{keymap, COLS, ROWS, SIZE};
 
 use lilos::exec::{run_tasks_with_idle, Notify, ALL_TASKS};
 use lilos::mutex::Mutex;
 use lilos::time::Timer as _;
-use lilos::{create_list, create_mutex, create_static_mutex};
+use lilos::{create_list, create_mutex};
 
 mod lilos_support;
-use lilos_support::fifo::reset_read_fifo;
+use lilos_support::fifo::{reset_read_fifo, AsyncFifo};
 use lilos_support::timer::{make_idle_task, now, Instant, Timer};
 
 use rp_pico as bsp;
@@ -29,8 +29,8 @@ use hal::gpio::{
     PullNone,
 };
 use hal::multicore::{Multicore, Stack};
+use hal::sio::{Sio, SioFifo};
 use hal::Clock;
-use hal::Sio;
 use pac::interrupt;
 
 use embedded_hal::digital::v2::{InputPin, OutputPin};
@@ -45,6 +45,7 @@ use usbd_serial::SerialPort;
 use heapless::Vec;
 
 use rmk_mekk_elek::debounce::SchmittDebouncer;
+use rmk_mekk_elek::keystate::Keyboard;
 use rmk_mekk_elek::matrix::decode;
 
 use panic_probe as _;
@@ -110,10 +111,6 @@ fn core0() -> ! {
         pins.gpio15.reconfigure().into_dyn_pin(),
     ]);
 
-    // TODO: We need to use FIFO to have a mutex-free way so we could debug from
-    // the other core
-    let keymap_mutex = create_static_mutex!(KeymapT, keymap());
-
     let mut led = pins.led.reconfigure();
     let mut core0_idle_pin = pins.gpio2.reconfigure();
     let mut core1_idle_pin = pins.gpio3.reconfigure();
@@ -126,7 +123,6 @@ fn core0() -> ! {
             sys_clk,
             &mut rows,
             &mut cols,
-            keymap_mutex,
             Some(&mut core1_idle_pin),
             &mut deb_pin,
         );
@@ -168,11 +164,14 @@ fn core0() -> ! {
         Some(&mut core0_idle_pin),
     );
 
+    create_mutex!(keys_mutex, Vec::new());
+
     // Set up and run the scheduler with a single task.
     run_tasks_with_idle(
         &mut [
+            stack_pin!(read_fifo(&mut sio.fifo, keys_mutex)),
             stack_pin!(tick(&timer, keyboard_mutex)),
-            stack_pin!(write_keyboard(&timer, keyboard_mutex, keymap_mutex)),
+            stack_pin!(write_keyboard(&timer, keyboard_mutex, keys_mutex)),
             stack_pin!(usb_irq(
                 keyboard_mutex,
                 &mut usb_device,
@@ -193,7 +192,6 @@ fn core1<'a, P: PinId, Q: PinId>(
     sys_clk: fugit::Rate<u32, 1, 1>,
     rows: &'a mut Vec<GpioPin<DynPinId, FunctionSioOutput, PullDown>, ROWS>,
     cols: &'a mut Vec<GpioPin<DynPinId, FunctionSioInput, PullDown>, COLS>,
-    keymap_mutex: PtrPin<&Mutex<KeymapT>>,
     core1_idle_pin: Option<&'a mut GpioPin<P, FunctionSioOutput, PullNone>>,
     deb_pin: &'a mut GpioPin<Q, FunctionSioOutput, PullNone>,
 ) -> ! {
@@ -224,7 +222,6 @@ fn core1<'a, P: PinId, Q: PinId>(
             &mut sio.fifo,
             cols,
             rows,
-            keymap_mutex,
             deb_pin
         ))],
         ALL_TASKS,
@@ -234,28 +231,61 @@ fn core1<'a, P: PinId, Q: PinId>(
     );
 }
 
+const KEYS_DONE: u32 = u32::MAX;
+
 async fn scan<'a, P: PinId>(
     timer: &'a Timer<'a>,
+    fifo: &'a mut SioFifo,
     cols: &'a mut Vec<GpioPin<DynPinId, FunctionSioInput, PullDown>, COLS>,
     rows: &'a mut Vec<GpioPin<DynPinId, FunctionSioOutput, PullDown>, ROWS>,
-    keymap_mutex: PtrPin<&'a Mutex<KeymapT>>,
     deb_pin: &'a mut GpioPin<P, FunctionSioOutput, PullNone>,
 ) -> Infallible {
     let mut gate = lilos::time::PeriodicGate::new(timer, 1.millis());
     let mut debouncer: SchmittDebouncer<36, 1> = Default::default();
     let mut pressed = [false; COLS * ROWS];
     let mut keys: heapless::Vec<_, ROLLOVER> = Vec::new();
+    let mut keymap = keymap();
 
     loop {
-        keymap_mutex.lock().await.perform(|keymap| {
-            decode(cols, rows, &mut pressed, true).unwrap();
-            deb_pin.set_high().unwrap();
-            debouncer.debounce(&mut pressed);
-            deb_pin.set_low().unwrap();
-            keymap.process(&pressed, &mut keys, timer.now().ticks());
-        });
+        decode(cols, rows, &mut pressed, true).unwrap();
+
+        deb_pin.set_high().unwrap();
+        debouncer.debounce(&mut pressed);
+        deb_pin.set_low().unwrap();
+
+        keymap.process(&pressed, &mut keys, timer.now().ticks());
+
+        for key in &keys {
+            fifo.write_async(Into::<u8>::into(*key) as u32).await;
+        }
+        fifo.write_async(KEYS_DONE).await;
 
         gate.next_time(timer).await;
+    }
+}
+
+async fn read_fifo<'a>(
+    fifo: &'a mut SioFifo,
+    keys_mutex: PtrPin<&'a Mutex<Vec<Keyboard, SIZE>>>,
+) -> Infallible {
+    let mut new_keys = Vec::new();
+    let new_keys_ref = &mut new_keys;
+
+    loop {
+        match fifo.read_async().await {
+            KEYS_DONE => {
+                keys_mutex
+                    .lock()
+                    .await
+                    .perform(|keys| core::mem::swap(keys, new_keys_ref));
+            }
+
+            n => {
+                assert!(n <= u8::MAX as u32);
+                let key = Keyboard::from(n as u8);
+                new_keys_ref.push(key).unwrap();
+            }
+        }
     }
 }
 
@@ -285,16 +315,16 @@ async fn tick<'a>(
 async fn write_keyboard<'a>(
     timer: &'a Timer<'a>,
     keyboard_mutex: PtrPin<&Mutex<UsbHidClass<'a, Rp2040Usb, KeyboardDev<'a>>>>,
-    keymap_mutex: PtrPin<&'a Mutex<KeymapT>>,
+    keys_mutex: PtrPin<&'a Mutex<Vec<Keyboard, SIZE>>>,
 ) -> Infallible {
     let mut gate = lilos::time::PeriodicGate::new(timer, 1.millis());
 
     loop {
-        let keymap_permit = keymap_mutex.lock().await;
+        let keys_permit = keys_mutex.lock().await;
         let keyboard_permit = keyboard_mutex.lock().await;
 
-        let report = keymap_permit.perform(|keymap| {
-            let keys = keymap.pressed_keys.iter().cloned();
+        let report = keys_permit.perform(|keys| {
+            let keys = keys.iter().cloned();
             keyboard_permit.perform(|keyboard| keyboard.device().write_report(keys))
         });
 
