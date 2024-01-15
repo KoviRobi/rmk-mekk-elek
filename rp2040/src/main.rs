@@ -34,6 +34,7 @@ use hal::Clock;
 use pac::interrupt;
 
 use embedded_hal::digital::v2::{InputPin, OutputPin};
+use embedded_hal::watchdog::{Watchdog, WatchdogEnable};
 
 use hal::usb::UsbBus as Rp2040Usb;
 use rp2040_selfdebug::{dap_execute_command, dap_setup, CmsisDap};
@@ -60,11 +61,24 @@ defmt::timestamp!("{} {:us}", Sio::core(), now());
 
 const ROLLOVER: usize = 36;
 
+#[link_section = ".uninit"]
+static mut REBOOTED: u32 = 0;
+const REBOOTED_MAGIC: u32 = 0x2EB007ED;
+
 #[entry]
 fn core0() -> ! {
     let mut core = pac::CorePeripherals::take().unwrap();
     let mut pac = pac::Peripherals::take().unwrap();
     let mut sio = Sio::new(pac.SIO);
+
+    defmt::info!("Rebooted: {}", unsafe { REBOOTED });
+    if unsafe { REBOOTED } == REBOOTED_MAGIC {
+        // Allow flashing to do normal boot
+        unsafe { REBOOTED = 0 };
+        hal::rom_data::reset_to_usb_boot(1 << 25, 0);
+    } else {
+        unsafe { REBOOTED = REBOOTED_MAGIC };
+    }
 
     // Set up the watchdog driver - needed by the clock setup code
     let mut watchdog = hal::watchdog::Watchdog::new(pac.WATCHDOG);
@@ -183,6 +197,8 @@ fn core0() -> ! {
                 &mut usb_dap,
                 &mut led
             )),
+            stack_pin!(heartbeat(&timer)),
+            stack_pin!(watchdog_task(&timer, &mut watchdog)),
         ],
         ALL_TASKS,
         &timer,
@@ -222,13 +238,10 @@ fn core1<'a, P: PinId, Q: PinId>(
     reset_read_fifo(&mut sio.fifo);
 
     run_tasks_with_idle(
-        &mut [core::pin::pin!(scan(
-            &timer,
-            &mut sio.fifo,
-            cols,
-            rows,
-            deb_pin
-        ))],
+        &mut [
+            core::pin::pin!(scan(&timer, &mut sio.fifo, cols, rows, deb_pin)),
+            stack_pin!(heartbeat(&timer)),
+        ],
         ALL_TASKS,
         &timer,
         1,
@@ -237,6 +250,38 @@ fn core1<'a, P: PinId, Q: PinId>(
 }
 
 const KEYS_DONE: u32 = u32::MAX;
+
+async fn watchdog_task(timer: &Timer<'_>, watchdog: &mut hal::Watchdog) -> Infallible {
+    use hal::watchdog::ScratchRegister::*;
+
+    watchdog.start(fugit::ExtU32::secs(5));
+
+    let magic = 0xb007c0d3; // `bootcode` in hexspeak
+    let mut pc = 0x00001b88;
+    let sp = 0x20042000;
+
+    pc |= 1; // thumb mode
+
+    watchdog.write_scratch(Scratch4, magic);
+    watchdog.write_scratch(Scratch5, pc ^ 0u32.wrapping_sub(magic));
+    watchdog.write_scratch(Scratch6, sp);
+    watchdog.write_scratch(Scratch7, pc);
+
+    let mut gate = lilos::time::PeriodicGate::new(timer, 1.secs());
+
+    loop {
+        watchdog.feed();
+        gate.next_time(timer).await;
+    }
+}
+
+async fn heartbeat(timer: &Timer<'_>) -> Infallible {
+    let mut gate = lilos::time::PeriodicGate::new(timer, 1.secs());
+    loop {
+        defmt::debug!("Heartbeat");
+        gate.next_time(timer).await;
+    }
+}
 
 async fn scan<'a, P: PinId>(
     timer: &'a Timer<'a>,
@@ -273,8 +318,7 @@ async fn read_fifo<'a>(
     fifo: &'a mut SioFifo,
     keys_mutex: PtrPin<&'a Mutex<Vec<Keyboard, SIZE>>>,
 ) -> Infallible {
-    let mut new_keys = Vec::new();
-    let new_keys_ref = &mut new_keys;
+    let mut new_keys = &mut Vec::new();
 
     loop {
         match fifo.read_async().await {
@@ -282,13 +326,13 @@ async fn read_fifo<'a>(
                 keys_mutex
                     .lock()
                     .await
-                    .perform(|keys| core::mem::swap(keys, new_keys_ref));
+                    .perform(|keys| core::mem::swap(keys, new_keys));
             }
 
             n => {
                 assert!(n <= u8::MAX as u32);
                 let key = Keyboard::from(n as u8);
-                new_keys_ref.push(key).unwrap();
+                new_keys.push(key).unwrap();
             }
         }
     }
